@@ -14,7 +14,7 @@ ENV VIRTUAL_ENV=/opt/venv
 RUN python3 -m venv $VIRTUAL_ENV
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
-# API Key & Antigravity configuration
+# API Key & Antigravity configuration (Set via environment variable if needed)
 ENV GEMINI_API_KEY=""
 ENV ANTIGRAVITY_API_KEY=""
 ENV GOOGLE_API_KEY=""
