@@ -52,7 +52,7 @@ class TestHooksE2E(unittest.TestCase):
         cache = lsp_audit.load_cache(lsp_audit.get_cache_file(self.conv_id))
         self.assertEqual(len(cache["files"]), 2)
 
-        # 3. PreInvocation inyecta mensaje efímero consolidado
+        # 3. PreInvocation inyecta mensaje efimero consolidado
         old_stdout = sys.stdout
         sys.stdout = io.StringIO()
         try:

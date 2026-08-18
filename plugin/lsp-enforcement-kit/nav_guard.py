@@ -8,16 +8,13 @@ Features:
 - Smart regex detection: Blocks PascalCase, camelCase, snake_case, and method calls.
 - Preserves general search: Allows keywords (TODO, FIXME), file extensions, and URLs.
 - Zero dependencies: Python stdlib only, < 2ms execution.
+- Pure ASCII standard output.
 """
 import sys
 import json
 import os
 import re
 import pathlib
-
-# Ensure UTF-8 output
-if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 # Explicit code symbol detectors
 PASCAL_CASE = re.compile(r"^[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]+)+$")
@@ -110,7 +107,7 @@ def handle_pre_tool(payload: dict):
             providers = detect_mcp_providers()
             suggested_tool = build_suggestion(target_query, providers)
             reason = (
-                f"⛔ [LSP-FIRST GUARD]: '{target_query}' detected as a {symbol_type}. "
+                f"[LSP-FIRST GUARD]: '{target_query}' detected as a {symbol_type}. "
                 f"Use semantic tools instead of full-text search: {suggested_tool}"
             )
             print(json.dumps({

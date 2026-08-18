@@ -2,6 +2,7 @@
 LSP/ACP Post-Write Code Auditor & Quality Gate for Antigravity CLI.
 Ponytail (ULTRA) Production Architecture:
 - Python stdlib only (zero pip dependencies).
+- Pure ASCII standard compliance (no unicode emojis in outputs).
 - Nearest-Root Discovery (Scales seamlessly in monorepos by isolating subpackages).
 - Cross-platform path normalization (Windows/macOS/Linux case & separator consistency).
 - Multi-language support: Python, TypeScript, JavaScript, Astro, Rust, Go, JSON, TOML.
@@ -9,7 +10,7 @@ Ponytail (ULTRA) Production Architecture:
 - Circuit breaker on Stop hook (prevents infinite agent deadlocks, max 3 retries).
 - Content-hash caching (zero redundant CLI invocations on clean files).
 - Fast failover ladder (AST/Native -> CLI Linters -> Graceful degradation).
-- Built-in status diagnostics mode (`status`).
+- Built-in status diagnostics mode (status).
 """
 import sys
 import json
@@ -26,12 +27,6 @@ try:
 except ImportError:
     tomllib = None
 
-# Ensure UTF-8 output on Windows consoles
-if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-if hasattr(sys.stderr, "reconfigure"):
-    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-
 CACHE_DIR = pathlib.Path(".agents/.audit_cache")
 MAX_STOP_ATTEMPTS = 3
 TIMEOUT = 10
@@ -41,7 +36,6 @@ def normalize_path(filepath: str) -> str:
     if not filepath:
         return ""
     abs_path = os.path.abspath(filepath)
-    # On Windows, normalize casing to avoid duplicate cache keys
     return os.path.normcase(abs_path) if os.name == "nt" else abs_path
 
 def get_cache_file(conv_id: str) -> pathlib.Path:
@@ -117,7 +111,6 @@ def parse_tool_args(args: dict) -> str | None:
     return None
 
 def audit_python(filepath: str) -> list[str]:
-    # 1. AST syntax check (0ms, 100% reliable)
     try:
         with open(filepath, "r", encoding="utf-8") as f:
             ast.parse(f.read(), filename=filepath)
@@ -126,7 +119,6 @@ def audit_python(filepath: str) -> list[str]:
     except Exception as e:
         return [f"[Python ReadError] {filepath}: {e}"]
 
-    # 2. Fast CLI Linter if available
     if shutil.which("ruff"):
         res = run_cmd(["ruff", "check", "--select=E,F", "--output-format=concise", filepath])
         if res.returncode != 0 and res.stdout.strip():
@@ -154,13 +146,11 @@ def audit_python(filepath: str) -> list[str]:
 
 def audit_typescript_javascript(filepath: str) -> list[str]:
     ext = os.path.splitext(filepath)[1].lower()
-    # 1. Node check for pure JS
     if ext in (".js", ".mjs", ".cjs") and shutil.which("node"):
         res = run_cmd(["node", "--check", filepath])
         if res.returncode != 0 and res.stderr:
             return [f"[JS SyntaxError] {res.stderr.strip().splitlines()[-1]}"]
 
-    # 2. Monorepo subpackage root detection
     ts_root = find_nearest_root(filepath, ["tsconfig.json", "package.json"])
     cwd = str(ts_root) if ts_root else None
 
@@ -288,7 +278,6 @@ def reconcile_cross_file_errors(cache: dict) -> bool:
                 cache["files"][fpath]["errors"] = current_errors
                 cache["files"][fpath]["hash"] = get_file_hash(fpath)
         else:
-            # File deleted on disk: clear from cache
             cache["files"].pop(fpath, None)
             changed = True
     return changed
@@ -332,7 +321,7 @@ def handle_pre_invocation(payload: dict):
         seen = set()
         deduped = [e for e in all_errors if not (e in seen or seen.add(e))]
         if deduped:
-            msg = "🚨 [LSP Diagnostics - Action Required]:\n" + "\n".join(f"- {e}" for e in deduped[:6])
+            msg = "[LSP Diagnostics - Action Required]:\n" + "\n".join(f"- {e}" for e in deduped[:6])
             print(json.dumps({
                 "injectSteps": [
                     {"ephemeralMessage": msg}
@@ -353,7 +342,6 @@ def handle_stop(payload: dict):
         cache["stop_attempts"] = attempts
         save_cache(cache_path, cache)
 
-        # Circuit Breaker: do not deadlock agent if max retries exceeded
         if attempts > MAX_STOP_ATTEMPTS:
             sys.stderr.write(
                 f"[WARN] Circuit breaker triggered after {MAX_STOP_ATTEMPTS} attempts. Allowing agent to complete.\n"
@@ -377,28 +365,28 @@ def handle_stop(payload: dict):
     print(json.dumps({}))
 
 def print_status():
-    """Prints diagnostic status of the environment and tools."""
+    """Prints diagnostic status of the environment and tools in pure ASCII."""
     print("=" * 60)
-    print("🔍 Antigravity LSP Enforcement Kit - Diagnostic Status")
+    print("Antigravity LSP Enforcement Kit - Diagnostic Status")
     print("=" * 60)
     
     linters = {
-        "Python AST": "✅ Available (stdlib)",
-        "Ruff": "✅ Available" if shutil.which("ruff") else "❌ Not found",
-        "Pyright": "✅ Available" if shutil.which("pyright") else "❌ Not found",
-        "Node.js": "✅ Available" if shutil.which("node") else "❌ Not found",
-        "TypeScript (tsc)": "✅ Available" if shutil.which("tsc") else "❌ Not found",
-        "Biome": "✅ Available" if shutil.which("biome") else "❌ Not found",
-        "Astro CLI": "✅ Available" if shutil.which("astro") else "❌ Not found",
-        "Cargo (Rust)": "✅ Available" if shutil.which("cargo") else "❌ Not found",
-        "Go": "✅ Available" if shutil.which("go") else "❌ Not found",
-        "TOML Parser": "✅ Available (stdlib)" if tomllib else "❌ Not found (< Python 3.11)",
+        "Python AST": "[OK] Available (stdlib)",
+        "Ruff": "[OK] Available" if shutil.which("ruff") else "[FAIL] Not found",
+        "Pyright": "[OK] Available" if shutil.which("pyright") else "[FAIL] Not found",
+        "Node.js": "[OK] Available" if shutil.which("node") else "[FAIL] Not found",
+        "TypeScript (tsc)": "[OK] Available" if shutil.which("tsc") else "[FAIL] Not found",
+        "Biome": "[OK] Available" if shutil.which("biome") else "[FAIL] Not found",
+        "Astro CLI": "[OK] Available" if shutil.which("astro") else "[FAIL] Not found",
+        "Cargo (Rust)": "[OK] Available" if shutil.which("cargo") else "[FAIL] Not found",
+        "Go": "[OK] Available" if shutil.which("go") else "[FAIL] Not found",
+        "TOML Parser": "[OK] Available (stdlib)" if tomllib else "[FAIL] Not found (< Python 3.11)",
     }
     
     for tool, status in linters.items():
         print(f"  {tool:<20}: {status}")
 
-    print("\n📁 Cache Directory:")
+    print("\nCache Directory:")
     if CACHE_DIR.exists():
         caches = list(CACHE_DIR.glob("*.json"))
         print(f"  Location : {CACHE_DIR.resolve()}")
