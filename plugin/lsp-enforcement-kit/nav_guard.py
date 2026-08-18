@@ -5,7 +5,8 @@ saving up to 80-90% of exploration tokens.
 
 Features:
 - Provider-aware: Detects MCP LSP servers (Serena, cclsp, etc.) in global/local configs.
-- Smart regex detection: Blocks PascalCase, camelCase, snake_case, and method calls.
+- Smart regex detection: Blocks PascalCase, TypeScript Interfaces (IUserService),
+  camelCase, snake_case functions, and method calls.
 - Preserves general search: Allows keywords (TODO, FIXME), file extensions, and URLs.
 - Zero dependencies: Python stdlib only, < 2ms execution.
 - Pure ASCII standard output.
@@ -16,15 +17,15 @@ import os
 import re
 import pathlib
 
-# Explicit code symbol detectors
-PASCAL_CASE = re.compile(r"^[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]+)+$")
-CAMEL_CASE = re.compile(r"^[a-z0-9]+(?:[A-Z][a-z0-9]+)+$")
+# Explicit code symbol detectors supporting Interfaces (IUser), Generics (TData), Acronyms (HTMLParser)
+PASCAL_CASE = re.compile(r"^[A-Z]+[a-z0-9]+[A-Za-z0-9]*$")
+CAMEL_CASE = re.compile(r"^[a-z0-9]+(?:[A-Z][a-z0-9]*)+$")
 SNAKE_CASE_FUNC = re.compile(r"^[a-z0-9]+(?:_[a-z0-9]+)+$")
 DOTTED_ACCESS = re.compile(r"^[a-zA-Z_]\w*\.[a-zA-Z_]\w+$")
 
 # Whitelist of patterns that should be allowed through Grep/Glob
 ALLOWED_PATTERNS = [
-    re.compile(r"^(TODO|FIXME|NOTE|BUG|HACK|XXX)\b", re.IGNORECASE),
+    re.compile(r"^(TODO|FIXME|NOTE|BUG|HACK|XXX|README|CHANGELOG|LICENSE)\b", re.IGNORECASE),
     re.compile(r"^\*\.[a-zA-Z0-9]+$"),                     # *.ts, *.py
     re.compile(r"^https?://", re.IGNORECASE),               # URLs
     re.compile(r"^\-\-[a-zA-Z0-9_\-]+$"),                   # CLI flags (--verbose)
