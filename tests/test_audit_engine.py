@@ -144,7 +144,7 @@ class TestAuditEngine(unittest.TestCase):
         src_file.write_text("console.log('hi');", encoding="utf-8")
 
         detected_root = lsp_audit.find_nearest_root(str(src_file), ["package.json"])
-        self.assertEqual(detected_root, subpkg)
+        self.assertEqual(detected_root, subpkg.resolve())
 
     def test_circuit_breaker_anti_deadlock(self):
         cache_path = lsp_audit.get_cache_file(self.conv_id)
