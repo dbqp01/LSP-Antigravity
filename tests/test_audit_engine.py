@@ -33,6 +33,31 @@ class TestAuditEngine(unittest.TestCase):
         errors_fixed = lsp_audit.audit_file(py_file)
         self.assertEqual(len(errors_fixed), 0)
 
+    def test_python_undefined_name_detection(self):
+        # Exact reproduction of user case: parser.target_tag = taag (NameError)
+        py_file = os.path.join(self.test_dir, "scraper_typo.py")
+        code = (
+            "class SimpleParser:\n"
+            "    target_tag = None\n\n"
+            "def scrape(tag):\n"
+            "    parser = SimpleParser()\n"
+            "    parser.target_tag = taag\n"
+            "    return parser\n"
+        )
+        with open(py_file, "w", encoding="utf-8") as f:
+            f.write(code)
+
+        errors = lsp_audit.audit_file(py_file)
+        self.assertTrue(any("NameError" in e and "taag" in e for e in errors), f"Expected NameError for 'taag', got {errors}")
+        self.assertTrue(any("Did you mean 'tag'?" in e for e in errors), f"Expected 'Did you mean tag', got {errors}")
+
+        # Fix typo
+        with open(py_file, "w", encoding="utf-8") as f:
+            f.write(code.replace("taag", "tag"))
+
+        errors_fixed = lsp_audit.audit_file(py_file)
+        self.assertEqual(len(errors_fixed), 0)
+
     def test_astro_frontmatter_check(self):
         astro_file = os.path.join(self.test_dir, "page.astro")
         with open(astro_file, "w", encoding="utf-8") as f:
@@ -79,7 +104,6 @@ class TestAuditEngine(unittest.TestCase):
             },
             "stop_attempts": 0
         }
-        # file_a is now valid on disk, file_b is still broken
         lsp_audit.reconcile_cross_file_errors(cache)
         self.assertNotIn(norm_a, cache["files"])
         self.assertIn(norm_b, cache["files"])
