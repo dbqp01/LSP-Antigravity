@@ -84,13 +84,14 @@ def save_cache(cache_path: pathlib.Path, cache: dict):
 
 def run_cmd(cmd: list[str], cwd: str | None = None, timeout: int = TIMEOUT) -> subprocess.CompletedProcess:
     try:
+        use_shell = os.name == "nt" and bool(cmd and (cmd[0].endswith(".cmd") or cmd[0].endswith(".bat")))
         return subprocess.run(
             cmd,
             cwd=cwd,
             capture_output=True,
             text=True,
             timeout=timeout,
-            shell=(os.name == "nt")
+            shell=use_shell
         )
     except subprocess.TimeoutExpired:
         return subprocess.CompletedProcess(cmd, -1, stdout="", stderr=f"Timeout after {timeout}s")
@@ -310,7 +311,7 @@ def audit_powershell(filepath: str) -> list[str]:
             f"if ($errs) {{ foreach ($e in $errs) {{ Write-Output ('[PowerShell SyntaxError] Line ' + $e.Extent.StartLineNumber + ': ' + $e.Message) }} }}"
         )
         encoded = base64.b64encode(ps_snippet.encode("utf-16le")).decode("ascii")
-        res = run_cmd([ps_cmd, "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded], timeout=5)
+        res = run_cmd([ps_cmd, "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded], timeout=15)
         if res.stdout.strip():
             lines = [l for l in res.stdout.splitlines() if l.strip()]
             return lines[:5]
