@@ -53,6 +53,34 @@ class TestAuditEngine(unittest.TestCase):
         errors = lsp_audit.audit_file(json_file)
         self.assertTrue(any("JSON SyntaxError" in e for e in errors))
 
+    def test_toml_syntax_check(self):
+        toml_file = os.path.join(self.test_dir, "config.toml")
+        with open(toml_file, "wb") as f:
+            f.write(b"key = [1, 2,")
+        errors = lsp_audit.audit_file(toml_file)
+        if lsp_audit.tomllib:
+            self.assertTrue(any("TOML SyntaxError" in e for e in errors))
+
+    def test_cross_file_reconciliation(self):
+        file_a = os.path.join(self.test_dir, "file_a.py")
+        file_b = os.path.join(self.test_dir, "file_b.py")
+        with open(file_a, "w", encoding="utf-8") as f:
+            f.write("def foo(): pass\n")
+        with open(file_b, "w", encoding="utf-8") as f:
+            f.write("def bar(:\n pass\n")
+
+        cache = {
+            "files": {
+                os.path.abspath(file_a): {"errors": ["Old error"], "hash": "123"},
+                os.path.abspath(file_b): {"errors": ["Syntax error"], "hash": "456"}
+            },
+            "stop_attempts": 0
+        }
+        # file_a is now valid on disk, file_b is still broken
+        lsp_audit.reconcile_cross_file_errors(cache)
+        self.assertNotIn(os.path.abspath(file_a), cache["files"])
+        self.assertIn(os.path.abspath(file_b), cache["files"])
+
     def test_circuit_breaker_anti_deadlock(self):
         cache_path = lsp_audit.get_cache_file(self.conv_id)
         cache = {
@@ -61,7 +89,6 @@ class TestAuditEngine(unittest.TestCase):
         }
         lsp_audit.save_cache(cache_path, cache)
 
-        # 1. First 3 stop attempts should block with 'continue'
         for attempt in range(1, lsp_audit.MAX_STOP_ATTEMPTS + 1):
             old_stdout = sys.stdout
             sys.stdout = io.StringIO()
@@ -73,7 +100,7 @@ class TestAuditEngine(unittest.TestCase):
             finally:
                 sys.stdout = old_stdout
 
-        # 2. 4th attempt exceeds threshold -> circuit breaker opens (returns empty dict, allowing stop)
+        # Circuit breaker opens
         old_stdout = sys.stdout
         sys.stdout = io.StringIO()
         try:

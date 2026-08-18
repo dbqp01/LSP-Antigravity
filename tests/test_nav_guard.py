@@ -38,6 +38,16 @@ class TestNavGuard(unittest.TestCase):
         # Multi-word search
         self.assertFalse(nav_guard.is_code_symbol("how to authenticate user")[0])
 
+    def test_provider_suggestions(self):
+        sug_serena = nav_guard.build_suggestion("UserService", ["serena"])
+        self.assertIn("mcp__serena__find_symbol", sug_serena)
+
+        sug_cclsp = nav_guard.build_suggestion("UserService", ["cclsp"])
+        self.assertIn("mcp__cclsp__find_definition", sug_cclsp)
+
+        sug_fallback = nav_guard.build_suggestion("UserService", [])
+        self.assertIn("semantic tools", sug_fallback)
+
     def test_handle_pre_tool_block(self):
         payload = {
             "conversationId": "test-123",
@@ -46,7 +56,6 @@ class TestNavGuard(unittest.TestCase):
                 "args": {"Query": "UserService"}
             }
         }
-        # Capture stdout
         old_stdout = sys.stdout
         sys.stdout = io.StringIO()
         try:

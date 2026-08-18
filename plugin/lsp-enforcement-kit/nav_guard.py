@@ -2,11 +2,18 @@
 Pre-Tool Navigation Guard for Antigravity CLI.
 Intercepts Grep / Glob calls to enforce LSP-first semantic navigation,
 saving up to 80-90% of exploration tokens.
-Adheres to Ponytail (ULTRA): Python stdlib only, < 2ms execution.
+
+Features:
+- Provider-aware: Detects MCP LSP servers (Serena, cclsp, etc.) in global/local configs.
+- Smart regex detection: Blocks PascalCase, camelCase, snake_case, and method calls.
+- Preserves general search: Allows keywords (TODO, FIXME), file extensions, and URLs.
+- Zero dependencies: Python stdlib only, < 2ms execution.
 """
 import sys
 import json
+import os
 import re
+import pathlib
 
 # Ensure UTF-8 output
 if hasattr(sys.stdout, "reconfigure"):
@@ -28,12 +35,37 @@ ALLOWED_PATTERNS = [
     re.compile(r"^(src|dist|build|node_modules|tests?|lib|app|public)/"), # paths
 ]
 
+def detect_mcp_providers() -> list[str]:
+    """Detects configured LSP MCP servers in workspace or global configs."""
+    providers = []
+    config_paths = [
+        pathlib.Path(".agents/mcp_config.json"),
+        pathlib.Path("_agents/mcp_config.json"),
+        pathlib.Path.home() / ".gemini" / "config" / "mcp_config.json",
+        pathlib.Path.home() / ".gemini" / "antigravity-cli" / "mcp_config.json"
+    ]
+
+    for p in config_paths:
+        if p.exists():
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+                servers = data.get("mcpServers", {})
+                for name in servers:
+                    name_lower = name.lower()
+                    if "serena" in name_lower:
+                        providers.append("serena")
+                    elif "cclsp" in name_lower or "lsp" in name_lower:
+                        providers.append("cclsp")
+            except Exception:
+                pass
+
+    return list(set(providers))
+
 def is_code_symbol(query: str) -> tuple[bool, str]:
     query_str = query.strip()
     if not query_str or " " in query_str:
         return False, ""
 
-    # Check allowlist first
     for allowed in ALLOWED_PATTERNS:
         if allowed.search(query_str):
             return False, ""
@@ -49,6 +81,18 @@ def is_code_symbol(query: str) -> tuple[bool, str]:
 
     return False, ""
 
+def build_suggestion(symbol: str, providers: list[str]) -> str:
+    suggestions = []
+    if "serena" in providers:
+        suggestions.append(f'mcp__serena__find_symbol("{symbol}")')
+    if "cclsp" in providers:
+        suggestions.append(f'mcp__cclsp__find_definition("{symbol}") / find_references("{symbol}")')
+    
+    if not suggestions:
+        suggestions.append(f'LSP MCP semantic tools (find_definition, find_references) or targeted line-range view')
+
+    return " | ".join(suggestions)
+
 def handle_pre_tool(payload: dict):
     tool_call = payload.get("toolCall", {})
     tool_name = tool_call.get("name", "")
@@ -63,10 +107,11 @@ def handle_pre_tool(payload: dict):
     if target_query:
         is_symbol, symbol_type = is_code_symbol(target_query)
         if is_symbol:
+            providers = detect_mcp_providers()
+            suggested_tool = build_suggestion(target_query, providers)
             reason = (
-                f"⛔ [LSP-FIRST GUARD]: '{target_query}' was detected as a {symbol_type}. "
-                f"Use LSP/MCP semantic navigation (find_definition, find_references, workspace_symbols) "
-                f"or precise line range reading instead of whole-repo grep to save tokens."
+                f"⛔ [LSP-FIRST GUARD]: '{target_query}' detected as a {symbol_type}. "
+                f"Use semantic tools instead of full-text search: {suggested_tool}"
             )
             print(json.dumps({
                 "decision": "deny",

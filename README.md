@@ -23,26 +23,31 @@ Without semantic LSP guidance, AI coding agents suffer from two critical ineffic
 
 ```mermaid
 flowchart LR
-    A[Exploración / Lectura] -->|PreToolUse: nav_guard.py| B[Bloquea Grep ciego -> Sugiere LSP MCP]
+    A[Exploración / Lectura] -->|PreToolUse: nav_guard.py| B[Bloquea Grep ciego -> Sugiere LSP MCP activo]
     C[Modificación / Escritura] -->|PostToolUse: lsp_audit.py| D[Auditoría instantánea AST/Linter]
     D -->|PreInvocation efímero| E[Agente autocorrige el código roto]
     E -->|Stop Hook Gate| F[Cerrojo con Circuit Breaker anti-deadlock]
 ```
 
 ### 1. Pre-Tool Navigation Guard (`nav_guard.py`)
-Intercepts `grep_search` and `find_by_name`. If a query contains code symbols (e.g., `UserService`, `handleSubmit`, `write_audit_log`), it **denies execution** and instructs the agent to use LSP semantic navigation (`find_definition`, `find_references`) or targeted reading.
+Intercepts `grep_search` and `find_by_name`. If a query contains code symbols (e.g., `UserService`, `handleSubmit`, `write_audit_log`), it **denies execution** and instructs the agent to use active LSP MCP tools (`serena`, `cclsp`) or targeted reading.
 
 ### 2. Post-Tool Incremental Auditor (`lsp_audit.py`)
 Intercepts `write_to_file` and `replace_file_content`. Audits only modified files using a multi-tiered failover ladder:
-* **Python**: AST parsing (0ms) $\to$ Ruff / Pyright.
-* **TypeScript / JS**: Node `--check` $\to$ Biome / TSC.
+* **Python**: AST parsing (0ms) $\to$ Ruff $\to$ Pyright.
+* **TypeScript / JS**: Node `--check` $\to$ Biome $\to$ TSC.
 * **Astro**: Frontmatter format check $\to$ `@astrojs/check`.
-* **JSON**: Instant syntax validation with `json.loads()`.
+* **Rust**: `cargo check --message-format=json`.
+* **Go**: `go vet`.
+* **JSON / TOML**: Native stdlib parsers.
 
-### 3. Ephemeral Ingestion (`PreInvocation`)
+### 3. Cross-File Reconciliation
+When a modified file passes cleanly, the auditor automatically re-validates remaining broken files in the session cache to clear resolved import/export errors.
+
+### 4. Ephemeral Ingestion (`PreInvocation`)
 Injects diagnostics into the model prompt via `ephemeralMessage`. The model fixes the error without cluttering the permanent conversation transcript.
 
-### 4. Quality Gate with Circuit Breaker (`Stop`)
+### 5. Quality Gate with Circuit Breaker (`Stop`)
 Prevents the agent from stopping while unresolved errors persist in cache. Automatically releases after **3 attempts** (*Circuit Breaker*) to prevent infinite deadlocks.
 
 ---
@@ -74,6 +79,16 @@ cp -r plugin/lsp-enforcement-kit .agents/plugins/
 
 ---
 
+## 🔍 Diagnostic Status Check
+
+Verify installed compilers, linters, and session cache state at any time:
+
+```bash
+python plugin/lsp-enforcement-kit/lsp_audit.py status
+```
+
+---
+
 ## 🧪 Testing and Reproducibility
 
 ### Run the Native Test Suite (0 dependencies)
@@ -95,33 +110,6 @@ docker compose -f docker/docker-compose.yml run --rm audit-sandbox
 | Find symbol definition | ~6,500 tokens (Grep + 2 file reads) | ~580 tokens (`find_definition` + targeted read) | **~91%** |
 | Find symbol usages | ~1,500 tokens (Noisy Grep matches) | ~150 tokens (`find_references`) | **~90%** |
 | Syntax verification | Manual developer debugging | 0 tokens overhead (auto-fixed in-loop) | **100% automated** |
-
----
-
-## 📂 Repository Structure
-
-```text
-.
-├── .github/workflows/ci.yml       # Multi-OS & Multi-Python CI/CD pipeline
-├── docker/
-│   ├── Dockerfile                 # Slim, reproducible container sandbox
-│   └── docker-compose.yml         # Container runner
-├── docs/
-│   ├── ARCHITECTURE.md            # Detailed technical specification
-│   └── CHANGELOG.md               # Version history
-├── plugin/
-│   └── lsp-enforcement-kit/
-│       ├── hooks.json             # Antigravity hook lifecycle mappings
-│       ├── lsp_audit.py           # Post-write auditor & quality gate
-│       ├── nav_guard.py           # Pre-tool navigation guard
-│       └── plugin.json            # Official plugin manifest
-├── tests/
-│   ├── test_audit_engine.py       # Engine & circuit breaker unit tests
-│   ├── test_hooks_e2e.py          # Full lifecycle E2E integration tests
-│   └── test_nav_guard.py          # Symbol pattern detection tests
-├── LICENSE                        # MIT License
-└── README.md                      # Documentation & guide
-```
 
 ---
 

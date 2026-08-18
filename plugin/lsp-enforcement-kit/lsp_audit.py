@@ -2,9 +2,12 @@
 LSP/ACP Post-Write Code Auditor & Quality Gate for Antigravity CLI.
 Ponytail (ULTRA) Architecture:
 - Python stdlib only (zero pip dependencies).
+- Multi-language support: Python, TypeScript, JavaScript, Astro, Rust, Go, JSON, TOML.
+- Cross-file reconciliation: Re-checks failing files in session after shared fixes.
 - Circuit breaker on Stop hook (prevents infinite agent deadlocks, max 3 retries).
-- Content-hash / mtime caching (zero redundant CLI invocations on clean files).
+- Content-hash caching (zero redundant CLI invocations on clean files).
 - Fast failover ladder (AST/Native -> CLI Linters -> Graceful degradation).
+- Built-in status diagnostics mode (`status`).
 """
 import sys
 import json
@@ -14,6 +17,12 @@ import pathlib
 import ast
 import shutil
 import hashlib
+
+# Python 3.11+ TOML support in stdlib
+try:
+    import tomllib
+except ImportError:
+    tomllib = None
 
 # Ensure UTF-8 output on Windows consoles
 if hasattr(sys.stdout, "reconfigure"):
@@ -85,7 +94,6 @@ def parse_tool_args(args: dict) -> str | None:
     return None
 
 def audit_python(filepath: str) -> list[str]:
-    # 1. Stdlib AST syntax check (0ms, 100% reliable)
     try:
         with open(filepath, "r", encoding="utf-8") as f:
             ast.parse(f.read(), filename=filepath)
@@ -94,7 +102,6 @@ def audit_python(filepath: str) -> list[str]:
     except Exception as e:
         return [f"[Python ReadError] {filepath}: {e}"]
 
-    # 2. Fast CLI Linter if available
     if shutil.which("ruff"):
         res = run_cmd(["ruff", "check", "--select=E,F", "--output-format=concise", filepath])
         if res.returncode != 0 and res.stdout.strip():
@@ -120,13 +127,11 @@ def audit_python(filepath: str) -> list[str]:
 
 def audit_typescript_javascript(filepath: str) -> list[str]:
     ext = os.path.splitext(filepath)[1].lower()
-    # 1. Node check for pure JS
     if ext in (".js", ".mjs", ".cjs") and shutil.which("node"):
         res = run_cmd(["node", "--check", filepath])
         if res.returncode != 0 and res.stderr:
             return [f"[JS SyntaxError] {res.stderr.strip().splitlines()[-1]}"]
 
-    # 2. Biome / tsc
     has_biome = shutil.which("biome") is not None or os.path.exists("node_modules/.bin/biome") or os.path.exists("node_modules/.bin/biome.cmd")
     has_tsc = shutil.which("tsc") is not None or os.path.exists("node_modules/.bin/tsc") or os.path.exists("node_modules/.bin/tsc.cmd")
 
@@ -134,7 +139,7 @@ def audit_typescript_javascript(filepath: str) -> list[str]:
         cmd = ["npx", "biome", "lint", filepath] if not shutil.which("biome") else ["biome", "lint", filepath]
         res = run_cmd(cmd)
         if res.returncode != 0:
-            return [f"[Biome Lint] Issues found in {filepath}. Run `biome check` for details."]
+            return [f"[Biome Lint] Issues found in {filepath}."]
     elif has_tsc:
         cmd = ["npx", "tsc", "--noEmit"] if not shutil.which("tsc") else ["tsc", "--noEmit"]
         res = run_cmd(cmd)
@@ -145,7 +150,6 @@ def audit_typescript_javascript(filepath: str) -> list[str]:
     return []
 
 def audit_astro(filepath: str) -> list[str]:
-    # 1. Frontmatter check (0ms)
     try:
         with open(filepath, "r", encoding="utf-8") as f:
             content = f.read().strip()
@@ -154,7 +158,6 @@ def audit_astro(filepath: str) -> list[str]:
     except Exception as e:
         return [f"[Astro ReadError] {filepath}: {e}"]
 
-    # 2. CLI Astro Check
     has_astro = (
         shutil.which("astro") is not None
         or os.path.exists("node_modules/.bin/astro")
@@ -170,12 +173,56 @@ def audit_astro(filepath: str) -> list[str]:
             return (file_errors or lines)[:5]
     return []
 
+def audit_rust(filepath: str) -> list[str]:
+    if shutil.which("cargo"):
+        # Check if inside a cargo workspace
+        parent = pathlib.Path(filepath).parent
+        cargo_root = None
+        for p in [parent] + list(parent.parents):
+            if (p / "Cargo.toml").exists():
+                cargo_root = p
+                break
+        if cargo_root:
+            res = run_cmd(["cargo", "check", "--message-format=json"], timeout=15)
+            if res.returncode != 0 and res.stdout:
+                errors = []
+                for line in res.stdout.splitlines():
+                    try:
+                        msg = json.loads(line)
+                        if msg.get("reason") == "compiler-message":
+                            diag = msg.get("message", {})
+                            if diag.get("level") == "error":
+                                rendered = diag.get("rendered", "").splitlines()
+                                if rendered:
+                                    errors.append(f"[Rust Error] {rendered[0]}")
+                    except Exception:
+                        pass
+                return errors[:5]
+    return []
+
+def audit_go(filepath: str) -> list[str]:
+    if shutil.which("go"):
+        dir_path = os.path.dirname(filepath)
+        res = run_cmd(["go", "vet", filepath], timeout=10)
+        if res.returncode != 0 and res.stderr:
+            return [f"[Go Vet] {l}" for l in res.stderr.splitlines()[:5]]
+    return []
+
 def audit_json(filepath: str) -> list[str]:
     try:
         with open(filepath, "r", encoding="utf-8") as f:
             json.load(f)
     except Exception as e:
         return [f"[JSON SyntaxError] {filepath}: {e}"]
+    return []
+
+def audit_toml(filepath: str) -> list[str]:
+    if tomllib:
+        try:
+            with open(filepath, "rb") as f:
+                tomllib.load(f)
+        except Exception as e:
+            return [f"[TOML SyntaxError] {filepath}: {e}"]
     return []
 
 def audit_file(filepath: str) -> list[str]:
@@ -188,9 +235,30 @@ def audit_file(filepath: str) -> list[str]:
         return audit_typescript_javascript(filepath)
     elif ext == ".astro":
         return audit_astro(filepath)
+    elif ext == ".rs":
+        return audit_rust(filepath)
+    elif ext == ".go":
+        return audit_go(filepath)
     elif ext == ".json":
         return audit_json(filepath)
+    elif ext == ".toml":
+        return audit_toml(filepath)
     return []
+
+def reconcile_cross_file_errors(cache: dict) -> bool:
+    """Re-checks all currently failed files to see if a recent change fixed them."""
+    changed = False
+    files_to_recheck = list(cache["files"].keys())
+    for fpath in files_to_recheck:
+        if os.path.exists(fpath):
+            current_errors = audit_file(fpath)
+            if not current_errors:
+                cache["files"].pop(fpath, None)
+                changed = True
+            else:
+                cache["files"][fpath]["errors"] = current_errors
+                cache["files"][fpath]["hash"] = get_file_hash(fpath)
+    return changed
 
 def handle_post_tool(payload: dict):
     tool_call = payload.get("toolCall", {})
@@ -205,17 +273,17 @@ def handle_post_tool(payload: dict):
         cache = load_cache(cache_path)
 
         cached_entry = cache["files"].get(target_abs)
-        if cached_entry and cached_entry.get("hash") == current_hash and not cached_entry.get("errors"):
-            print(json.dumps({}))
-            return
+        if not (cached_entry and cached_entry.get("hash") == current_hash and not cached_entry.get("errors")):
+            errors = audit_file(target_abs)
+            if errors:
+                cache["files"][target_abs] = {"errors": errors, "hash": current_hash}
+            else:
+                cache["files"].pop(target_abs, None)
+                # If target_file was fixed, reconcile other failing files
+                if cache.get("files"):
+                    reconcile_cross_file_errors(cache)
 
-        errors = audit_file(target_abs)
-        if errors:
-            cache["files"][target_abs] = {"errors": errors, "hash": current_hash}
-        else:
-            cache["files"].pop(target_abs, None)
-
-        save_cache(cache_path, cache)
+            save_cache(cache_path, cache)
 
     print(json.dumps({}))
 
@@ -277,11 +345,47 @@ def handle_stop(payload: dict):
 
     print(json.dumps({}))
 
+def print_status():
+    """Prints diagnostic status of the environment and tools."""
+    print("=" * 60)
+    print("🔍 Antigravity LSP Enforcement Kit - Diagnostic Status")
+    print("=" * 60)
+    
+    linters = {
+        "Python AST": "✅ Available (stdlib)",
+        "Ruff": "✅ Available" if shutil.which("ruff") else "❌ Not found",
+        "Pyright": "✅ Available" if shutil.which("pyright") else "❌ Not found",
+        "Node.js": "✅ Available" if shutil.which("node") else "❌ Not found",
+        "TypeScript (tsc)": "✅ Available" if shutil.which("tsc") else "❌ Not found",
+        "Biome": "✅ Available" if shutil.which("biome") else "❌ Not found",
+        "Astro CLI": "✅ Available" if shutil.which("astro") else "❌ Not found",
+        "Cargo (Rust)": "✅ Available" if shutil.which("cargo") else "❌ Not found",
+        "Go": "✅ Available" if shutil.which("go") else "❌ Not found",
+        "TOML Parser": "✅ Available (stdlib)" if tomllib else "❌ Not found (< Python 3.11)",
+    }
+    
+    for tool, status in linters.items():
+        print(f"  {tool:<20}: {status}")
+
+    print("\n📁 Cache Directory:")
+    if CACHE_DIR.exists():
+        caches = list(CACHE_DIR.glob("*.json"))
+        print(f"  Location : {CACHE_DIR.resolve()}")
+        print(f"  Sessions : {len(caches)} active cache file(s)")
+    else:
+        print(f"  Location : {CACHE_DIR.resolve()} (Empty / Clean)")
+    print("=" * 60)
+
 def main():
     if len(sys.argv) < 2:
         print(json.dumps({}))
         return
     mode = sys.argv[1]
+
+    if mode == "status":
+        print_status()
+        return
+
     try:
         raw_input = sys.stdin.read()
         payload = json.loads(raw_input) if raw_input.strip() else {}

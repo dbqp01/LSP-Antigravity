@@ -2,6 +2,14 @@
 
 All notable changes to the **Antigravity LSP Enforcement Kit** will be documented in this file.
 
+## [1.1.0] - 2026-08-17
+
+### Added
+- **Multi-Language Expansion**: Added native/CLI audit support for **Rust** (`cargo check`), **Go** (`go vet`), and **TOML** (`tomllib`).
+- **Provider-Aware Navigation Guard**: `nav_guard.py` now scans workspace and global `mcp_config.json` files for active LSP servers (Serena, cclsp) and generates provider-specific tool recommendations.
+- **Cross-File Reconciliation**: When an edited file passes clean, `lsp_audit.py` automatically re-audits any remaining failing files in the session cache.
+- **Diagnostic CLI Command**: Added `python lsp_audit.py status` to report installed tools, compilers, and active cache state.
+
 ## [1.0.0] - 2026-08-17
 
 ### Added
