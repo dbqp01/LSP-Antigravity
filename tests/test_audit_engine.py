@@ -6,6 +6,7 @@ import os
 import sys
 import io
 import shutil
+import ast
 
 # Add plugin folder to sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "plugin", "lsp-enforcement-kit")))
@@ -175,6 +176,85 @@ class TestAuditEngine(unittest.TestCase):
             self.assertEqual(output, {})
         finally:
             sys.stdout = old_stdout
+
+    def test_python_wildcard_import_allowed(self):
+        py_file = os.path.join(self.test_dir, "wildcard.py")
+        code = "from math import *\nx = sqrt(16)\n"
+        with open(py_file, "w", encoding="utf-8") as f:
+            f.write(code)
+
+        tree = ast.parse(code, filename=py_file)
+        errors = lsp_audit.audit_python_scope_symbols(code, py_file, tree=tree)
+        self.assertEqual(errors, [], "Wildcard import should not trigger false-positive NameError")
+
+    def test_multi_replace_file_content_arg_parsing(self):
+        args = {"TargetFile": "src/components/App.tsx", "Instructions": "fix bug"}
+        parsed = lsp_audit.parse_tool_args(args)
+        self.assertTrue(parsed.endswith("app.tsx") or parsed.endswith("App.tsx"))
+
+    def test_shell_syntax_check(self):
+        if shutil.which("bash") or shutil.which("sh"):
+            sh_file = os.path.join(self.test_dir, "bad.sh")
+            with open(sh_file, "w", encoding="utf-8", newline="\n") as f:
+                f.write("if [ 1 -eq 1 ]; then\n")  # Missing fi
+            errors = lsp_audit.audit_shell(sh_file)
+            self.assertTrue(len(errors) > 0, f"Expected shell syntax error, got {errors}")
+
+            # Fix shell script
+            with open(sh_file, "w", encoding="utf-8", newline="\n") as f:
+                f.write("if [ 1 -eq 1 ]; then\n  echo 'hi'\nfi\n")
+            errors_fixed = lsp_audit.audit_shell(sh_file)
+            self.assertEqual(len(errors_fixed), 0)
+
+    def test_typescript_unrelated_error_isolation(self):
+        orig_which = shutil.which
+        orig_run_cmd = lsp_audit.run_cmd
+        try:
+            class MockCompletedProcess:
+                returncode = 1
+                stdout = "src/other_file.ts(10,5): error TS2304: Cannot find name 'foo'.\n"
+                stderr = ""
+
+            shutil.which = lambda tool: "tsc" if tool == "tsc" else None
+            lsp_audit.run_cmd = lambda *args, **kwargs: MockCompletedProcess()
+            # Create a mock tsconfig and file
+            ts_file = os.path.join(self.test_dir, "my_file.ts")
+            (pathlib.Path(self.test_dir) / "tsconfig.json").write_text("{}", encoding="utf-8")
+            with open(ts_file, "w", encoding="utf-8") as f:
+                f.write("const a = 1;\n")
+
+            # audit_typescript_javascript should NOT report error from other_file.ts
+            errors = lsp_audit.audit_typescript_javascript(ts_file)
+            self.assertEqual(errors, [], "Should not return errors from unrelated files")
+        finally:
+            shutil.which = orig_which
+            lsp_audit.run_cmd = orig_run_cmd
+
+    def test_rust_unrelated_error_isolation(self):
+        orig_run_cmd = lsp_audit.run_cmd
+        try:
+            class MockCargoProcess:
+                returncode = 1
+                stdout = json.dumps({
+                    "reason": "compiler-message",
+                    "message": {
+                        "level": "error",
+                        "rendered": "error[E0425]: cannot find value `bar` in this scope",
+                        "spans": [{"file_name": "src/other_crate_file.rs"}]
+                    }
+                })
+                stderr = ""
+
+            lsp_audit.run_cmd = lambda *args, **kwargs: MockCargoProcess()
+            rs_file = os.path.join(self.test_dir, "lib.rs")
+            (pathlib.Path(self.test_dir) / "Cargo.toml").write_text("[package]\nname='test'", encoding="utf-8")
+            with open(rs_file, "w", encoding="utf-8") as f:
+                f.write("fn foo() {}\n")
+
+            errors = lsp_audit.audit_rust(rs_file)
+            self.assertEqual(errors, [], "Should not report Rust errors from unrelated files")
+        finally:
+            lsp_audit.run_cmd = orig_run_cmd
 
 if __name__ == "__main__":
     unittest.main()

@@ -70,17 +70,19 @@ if (-not (Test-Path $SourceDir)) {
     $SourceDir = Join-Path $WorkspacePath "plugin\lsp-enforcement-kit"
 }
 
-# Workspace local (.agents/)
+# Workspace local (.agents/plugins/lsp-enforcement-kit)
 $LocalAgentsDir = Join-Path $WorkspacePath ".agents"
-$LocalHooksDir = Join-Path $LocalAgentsDir "hooks"
 $LocalPluginsDir = Join-Path $LocalAgentsDir "plugins\lsp-enforcement-kit"
 
-New-Item -ItemType Directory -Force -Path $LocalHooksDir, $LocalPluginsDir | Out-Null
-Copy-Item -Force "$SourceDir\nav_guard.py" "$LocalHooksDir\nav_guard.py"
-Copy-Item -Force "$SourceDir\lsp_audit.py" "$LocalHooksDir\lsp_audit.py"
-Copy-Item -Force "$SourceDir\hooks.json" "$LocalAgentsDir\hooks.json"
+New-Item -ItemType Directory -Force -Path $LocalPluginsDir | Out-Null
 Copy-Item -Recurse -Force "$SourceDir\*" "$LocalPluginsDir\"
-Write-Host "  [OK] Desplegado en Workspace: $LocalAgentsDir" -ForegroundColor Green
+
+# Remove legacy broken root hooks.json if present
+$LegacyHooksJson = Join-Path $LocalAgentsDir "hooks.json"
+if (Test-Path $LegacyHooksJson) {
+    Remove-Item -Force $LegacyHooksJson
+}
+Write-Host "  [OK] Desplegado como Plugin en Workspace: $LocalPluginsDir" -ForegroundColor Green
 
 # Global (~/.gemini/config/plugins/lsp-enforcement-kit)
 if ($Global) {
@@ -92,6 +94,6 @@ if ($Global) {
 
 # 4. Diagnostico Final
 Write-Host "`n"
-python "$LocalHooksDir\lsp_audit.py" status
+python "$LocalPluginsDir\lsp_audit.py" status
 
 Write-Host "`n[LISTO] Antigravity LSP Enforcement Kit instalado y activado con exito." -ForegroundColor Green

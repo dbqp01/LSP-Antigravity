@@ -3,7 +3,7 @@
 > A 360-degree Closed-Loop LSP Lifecycle & Quality Gate for Antigravity CLI
 > Enforce LSP-first navigation to save up to 80% tokens & prevent broken code from landing.
 
-[![CI](https://github.com/your-username/antigravity-lsp-enforcement-kit/actions/workflows/ci.yml/badge.svg)](https://github.com/your-username/antigravity-lsp-enforcement-kit/actions)
+[![CI](https://github.com/dbqp01/LSP-Antigravity/actions/workflows/ci.yml/badge.svg)](https://github.com/dbqp01/LSP-Antigravity/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Antigravity](https://img.shields.io/badge/Antigravity-Plugin-purple.svg)](https://antigravity.dev)
 [![Python Stdlib Only](https://img.shields.io/badge/Dependencies-0%20pip%20deps-blue.svg)](plugin/lsp-enforcement-kit/lsp_audit.py)
@@ -30,14 +30,14 @@ flowchart LR
 ```
 
 ### Supported Languages & Tools:
-* **Python** (`.py`): AST (0ms) + Native `symtable` (catches undefined variables / NameErrors) + `ruff` + `pyright`.
-* **TypeScript / JavaScript** (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`): `node --check` + `biome` + `tsc`.
-* **Astro** (`.astro`): Frontmatter validation + `@astrojs/check`.
+* **Python** (`.py`): AST (0ms) + Native `symtable` (catches undefined variables & typos, respects `from ... import *`) + `ruff` + `pyright`.
+* **TypeScript / JavaScript** (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`): `node --check` + `biome` + `tsc` (isolated to target file).
+* **Astro** (`.astro`): Frontmatter validation + `@astrojs/check` (isolated to target file).
 * **PHP** (`.php`): Native static lint parsing via `php -l`.
 * **PowerShell** (`.ps1`, `.psm1`, `.psd1`): Native .NET AST Parser (`System.Management.Automation.Language.Parser`).
 * **Bash / Shell** (`.sh`, `.bash`, `.zsh`): Cold static syntax checking via `bash -n` / `sh -n`.
-* **Rust** (`.rs`): `cargo check --message-format=json`.
-* **Go** (`.go`): `go vet`.
+* **Rust** (`.rs`): `cargo check --message-format=json` (isolated to target file spans).
+* **Go** (`.go`): `go vet` (isolated to target file).
 * **JSON / TOML** (`.json`, `.toml`): Native standard library parsers.
 
 ---
@@ -66,21 +66,21 @@ chmod +x install.sh
 Verify installed compilers, linters, and session cache state at any time:
 
 ```bash
-python .agents/hooks/lsp_audit.py status
+python plugin/lsp-enforcement-kit/lsp_audit.py status
 ```
 
 ---
 
 ## 5. Testing & Reproducibility
 
-### Run the Native Test Suite (16 tests, 0 dependencies)
+### Run the Native Test Suite
 ```bash
 python -m unittest discover tests -v
 ```
 
 ### Run Stress & Benchmarking Suite
 ```bash
-python tests/stress_test_suite.py -v
+python tests/stress_test_suite.py
 ```
 
 ### Run in Docker Sandbox
@@ -90,6 +90,12 @@ docker compose -f docker/docker-compose.yml run --rm audit-sandbox
 
 ---
 
-## 6. License
+## 6. Acknowledgments & Upstream Attribution
 
-MIT License. Designed with Ponytail (ULTRA) principles: minimal code, maximum speed, zero external dependencies, and 100% ASCII output compliance.
+This project is directly adapted and ported for Google Antigravity from the original [claude-code-lsp-enforcement-kit](https://github.com/nesaminua/claude-code-lsp-enforcement-kit) by [@nesaminua](https://github.com/nesaminua), licensed under the MIT License. We gratefully acknowledge their original architecture for LSP enforcement and token-saving navigation guards.
+
+---
+
+## 7. License
+
+MIT License. See [LICENSE](LICENSE) for details. Built for efficiency: minimal code, fast execution, zero external dependencies, and 100% ASCII standard output compliance.

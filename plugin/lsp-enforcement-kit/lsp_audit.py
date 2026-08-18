@@ -1,6 +1,6 @@
 """
 LSP/ACP Post-Write Code Auditor & Quality Gate for Antigravity CLI.
-Ponytail (ULTRA) Production Architecture:
+Production Architecture:
 - Python stdlib only (zero pip dependencies).
 - Pure ASCII standard compliance (no unicode emojis in outputs).
 - Built-in Semantic Scope & Undefined Name Resolution (symtable + difflib):
@@ -34,6 +34,7 @@ import builtins
 import difflib
 import symtable
 import base64
+import functools
 
 # Python 3.11+ TOML support in stdlib
 try:
@@ -110,14 +111,15 @@ def find_nearest_root(filepath: str, markers: list[str]) -> pathlib.Path | None:
         pass
     return None
 
-def get_python_tool_cmd(tool_name: str) -> list[str] | None:
-    """Resolves Python linters directly or via python -m fallback."""
+@functools.lru_cache(maxsize=16)
+def get_python_tool_cmd(tool_name: str) -> tuple[str, ...] | None:
+    """Resolves Python linters directly or via python -m fallback (cached)."""
     if shutil.which(tool_name):
-        return [tool_name]
+        return (tool_name,)
     try:
         res = subprocess.run([sys.executable, "-m", tool_name, "--version"], capture_output=True, timeout=2)
         if res.returncode == 0:
-            return [sys.executable, "-m", tool_name]
+            return (sys.executable, "-m", tool_name)
     except Exception:
         pass
     return None
@@ -137,10 +139,19 @@ def parse_tool_args(args: dict) -> str | None:
                 return normalize_path(val)
     return None
 
-def audit_python_scope_symbols(source: str, filepath: str) -> list[str]:
+def audit_python_scope_symbols(source: str, filepath: str, tree: ast.AST | None = None) -> list[str]:
     """Statically resolves local/global symbol tables to catch NameErrors (undefined variables) in O(N)."""
     if source.count("\n") > 3000:
         return []
+
+    # If module uses wildcard star imports (e.g. from module import *),
+    # dynamic namespace pollution makes static NameError checks prone to false positives.
+    if tree is not None:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    if alias.name == "*":
+                        return []
 
     built_in_names = set(dir(builtins))
     try:
@@ -177,21 +188,21 @@ def audit_python(filepath: str) -> list[str]:
     try:
         with open(filepath, "r", encoding="utf-8") as f:
             content = f.read()
-        ast.parse(content, filename=filepath)
+        tree = ast.parse(content, filename=filepath)
     except SyntaxError as e:
         return [f"[Python SyntaxError] {filepath}:{e.lineno}:{e.offset}: {e.msg}"]
     except Exception as e:
         return [f"[Python ReadError] {filepath}: {e}"]
 
     # 2. Built-in Scope & Symbol Table Resolution (Catches NameError in < 2ms)
-    scope_errors = audit_python_scope_symbols(content, filepath)
+    scope_errors = audit_python_scope_symbols(content, filepath, tree=tree)
     if scope_errors:
         return scope_errors
 
-    # 3. Fast CLI Linter (Ruff / Pyright with python -m fallback)
+    # 3. Fast CLI Linter (Ruff / Pyright with python -m fallback, memoized)
     ruff_cmd = get_python_tool_cmd("ruff")
     if ruff_cmd:
-        res = run_cmd(ruff_cmd + ["check", "--select=E,F", "--output-format=concise", filepath])
+        res = run_cmd(list(ruff_cmd) + ["check", "--select=E,F", "--ignore=E501", "--output-format=concise", filepath])
         if res.returncode != 0 and res.stdout.strip():
             lines = [l for l in res.stdout.splitlines() if ":" in l and not l.startswith("Found")]
             return lines[:5]
@@ -200,7 +211,7 @@ def audit_python(filepath: str) -> list[str]:
         if pyright_cmd:
             py_root = find_nearest_root(filepath, ["pyproject.toml", "setup.py", "requirements.txt"])
             cwd = str(py_root) if py_root else None
-            res = run_cmd(pyright_cmd + ["--outputjson", filepath], cwd=cwd)
+            res = run_cmd(list(pyright_cmd) + ["--outputjson", filepath], cwd=cwd)
             if res.stdout:
                 try:
                     data = json.loads(res.stdout)
@@ -242,9 +253,10 @@ def audit_typescript_javascript(filepath: str) -> list[str]:
         cmd = ["npx", "tsc", "--noEmit"] if not shutil.which("tsc") else ["tsc", "--noEmit"]
         res = run_cmd(cmd, cwd=cwd)
         if res.returncode != 0 and res.stdout:
+            target_name = os.path.basename(filepath)
             lines = [l for l in res.stdout.splitlines() if "error TS" in l]
-            file_ts_errors = [l for l in lines if os.path.basename(filepath) in l]
-            return (file_ts_errors or lines)[:5]
+            file_ts_errors = [l for l in lines if target_name in l]
+            return file_ts_errors[:5]
     return []
 
 def audit_astro(filepath: str) -> list[str]:
@@ -269,10 +281,11 @@ def audit_astro(filepath: str) -> list[str]:
         cmd = ["npx", "astro", "check"] if not shutil.which("astro") else ["astro", "check"]
         res = run_cmd(cmd, cwd=cwd, timeout=15)
         if res.returncode != 0:
+            target_name = os.path.basename(filepath)
             output = (res.stdout or "") + "\n" + (res.stderr or "")
             lines = [l for l in output.splitlines() if "error" in l.lower() or "TS" in l]
-            file_errors = [l for l in lines if os.path.basename(filepath) in l]
-            return (file_errors or lines)[:5]
+            file_errors = [l for l in lines if target_name in l]
+            return file_errors[:5]
     return []
 
 def audit_php(filepath: str) -> list[str]:
@@ -293,7 +306,9 @@ def audit_shell(filepath: str) -> list[str]:
     """Audits Bash/sh shell scripts using static -n syntax validation."""
     shell_cmd = shutil.which("bash") or shutil.which("sh")
     if shell_cmd:
-        res = run_cmd([shell_cmd, "-n", filepath], timeout=5)
+        cwd = os.path.dirname(filepath) or None
+        filename = os.path.basename(filepath)
+        res = run_cmd([shell_cmd, "-n", filename], cwd=cwd, timeout=5)
         if res.returncode != 0:
             output = (res.stderr or res.stdout or "").strip()
             lines = [l for l in output.splitlines() if l.strip()]
@@ -324,15 +339,25 @@ def audit_rust(filepath: str) -> list[str]:
             res = run_cmd(["cargo", "check", "--message-format=json"], cwd=str(cargo_root), timeout=15)
             if res.returncode != 0 and res.stdout:
                 errors = []
+                target_name = os.path.basename(filepath)
+                norm_target = normalize_path(filepath)
                 for line in res.stdout.splitlines():
                     try:
                         msg = json.loads(line)
                         if msg.get("reason") == "compiler-message":
                             diag = msg.get("message", {})
                             if diag.get("level") == "error":
-                                rendered = diag.get("rendered", "").splitlines()
-                                if rendered:
-                                    errors.append(f"[Rust Error] {rendered[0]}")
+                                spans = diag.get("spans", [])
+                                matches_file = False
+                                for span in spans:
+                                    fname = span.get("file_name", "")
+                                    if fname and (fname.endswith(target_name) or normalize_path(os.path.join(str(cargo_root), fname)) == norm_target):
+                                        matches_file = True
+                                        break
+                                if matches_file or not spans:
+                                    rendered = diag.get("rendered", "").splitlines()
+                                    if rendered:
+                                        errors.append(f"[Rust Error] {rendered[0]}")
                     except Exception:
                         pass
                 return errors[:5]
@@ -346,7 +371,9 @@ def audit_go(filepath: str) -> list[str]:
         cwd = str(go_root)
         res = run_cmd(["go", "vet", filepath], cwd=cwd, timeout=10)
         if res.returncode != 0 and res.stderr:
-            return [f"[Go Vet] {l}" for l in res.stderr.splitlines()[:5]]
+            target_name = os.path.basename(filepath)
+            lines = [l for l in res.stderr.splitlines() if target_name in l]
+            return [f"[Go Vet] {l}" for l in lines[:5]]
     return []
 
 def audit_json(filepath: str) -> list[str]:

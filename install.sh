@@ -32,21 +32,19 @@ else
 fi
 
 echo ""
-echo "[3/3] Deploying hooks..."
+echo "[3/3] Deploying plugin..."
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE_DIR="$SCRIPT_DIR/plugin/lsp-enforcement-kit"
 
-mkdir -p .agents/hooks .agents/plugins/lsp-enforcement-kit "$HOME/.gemini/config/plugins/lsp-enforcement-kit"
+mkdir -p .agents/plugins/lsp-enforcement-kit "$HOME/.gemini/config/plugins/lsp-enforcement-kit"
 
-cp -f "$SOURCE_DIR/nav_guard.py" .agents/hooks/
-cp -f "$SOURCE_DIR/lsp_audit.py" .agents/hooks/
-cp -f "$SOURCE_DIR/hooks.json" .agents/hooks.json
 cp -rf "$SOURCE_DIR/"* .agents/plugins/lsp-enforcement-kit/
 cp -rf "$SOURCE_DIR/"* "$HOME/.gemini/config/plugins/lsp-enforcement-kit/"
+rm -f .agents/hooks.json
 
-echo "  [OK] Deployed to workspace (.agents/) and globally (~/.gemini/config/plugins/)"
+echo "  [OK] Deployed as plugin to workspace (.agents/plugins/) and globally (~/.gemini/config/plugins/)"
 
 echo ""
-python3 .agents/hooks/lsp_audit.py status
+python3 .agents/plugins/lsp-enforcement-kit/lsp_audit.py status
 echo ""
 echo "[DONE] Antigravity LSP Enforcement Kit successfully installed and active."
