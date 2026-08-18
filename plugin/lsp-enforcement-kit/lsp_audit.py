@@ -9,6 +9,7 @@ Ponytail (ULTRA) Production Architecture:
   * Python (.py): AST + Native Symtable + Ruff + Pyright
   * TypeScript / JavaScript (.ts, .tsx, .js, .jsx, .mjs, .cjs): Node --check + Biome + TSC
   * Astro (.astro): Frontmatter verification + @astrojs/check
+  * PHP (.php): Native syntax validation via php -l (0ms execution-free parsing)
   * Shell Scripts (.sh, .bash, .zsh): Static parser via bash -n / sh -n
   * PowerShell (.ps1, .psm1, .psd1): Native AST Parser via System.Management.Automation
   * Rust (.rs): Cargo check
@@ -155,6 +156,7 @@ def audit_python_scope_symbols(source: str, filepath: str) -> list[str]:
         scope = stack.pop()
         for s in scope.get_symbols():
             name = s.get_name()
+            # If variable is referenced as global but not defined globally or in builtins
             if s.is_global() and not s.is_local() and not s.is_imported() and not s.is_assigned():
                 if name not in global_assigned and name not in built_in_names and not name.startswith("__"):
                     local_names = {sym.get_name() for sym in scope.get_symbols() if sym.is_local() or sym.is_assigned()}
@@ -272,6 +274,20 @@ def audit_astro(filepath: str) -> list[str]:
             return (file_errors or lines)[:5]
     return []
 
+def audit_php(filepath: str) -> list[str]:
+    """Audits PHP scripts using native execution-free lint mode (php -l)."""
+    php_cmd = shutil.which("php")
+    if php_cmd:
+        res = run_cmd([php_cmd, "-l", filepath], timeout=5)
+        if res.returncode != 0:
+            output = (res.stderr or res.stdout or "").strip()
+            lines = [
+                l for l in output.splitlines()
+                if "Parse error" in l or "Fatal error" in l or "syntax error" in l.lower()
+            ]
+            return [f"[PHP SyntaxError] {l}" for l in (lines or output.splitlines())[:5]]
+    return []
+
 def audit_shell(filepath: str) -> list[str]:
     """Audits Bash/sh shell scripts using static -n syntax validation."""
     shell_cmd = shutil.which("bash") or shutil.which("sh")
@@ -287,7 +303,6 @@ def audit_powershell(filepath: str) -> list[str]:
     """Audits PowerShell scripts (.ps1, .psm1) using native Language.Parser AST."""
     ps_cmd = shutil.which("pwsh") or shutil.which("powershell")
     if ps_cmd:
-        # Use safe Base64 script to avoid CLI escaping issues
         clean_path = filepath.replace("'", "''")
         ps_snippet = (
             f"$errs = $null; "
@@ -360,6 +375,8 @@ def audit_file(filepath: str) -> list[str]:
         return audit_typescript_javascript(filepath)
     elif ext == ".astro":
         return audit_astro(filepath)
+    elif ext == ".php":
+        return audit_php(filepath)
     elif ext in (".sh", ".bash", ".zsh"):
         return audit_shell(filepath)
     elif ext in (".ps1", ".psm1", ".psd1"):
@@ -489,6 +506,7 @@ def print_status():
         "TypeScript (tsc)": "[OK] Available" if shutil.which("tsc") else "[FAIL] Not found",
         "Biome": "[OK] Available" if shutil.which("biome") else "[FAIL] Not found",
         "Astro CLI": "[OK] Available" if shutil.which("astro") else "[FAIL] Not found",
+        "PHP (php -l)": "[OK] Available" if shutil.which("php") else "[FAIL] Not found",
         "Shell (bash/sh)": "[OK] Available" if (shutil.which("bash") or shutil.which("sh")) else "[FAIL] Not found",
         "PowerShell": "[OK] Available" if (shutil.which("pwsh") or shutil.which("powershell")) else "[FAIL] Not found",
         "Cargo (Rust)": "[OK] Available" if shutil.which("cargo") else "[FAIL] Not found",

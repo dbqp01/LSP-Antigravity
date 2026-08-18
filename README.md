@@ -29,55 +29,34 @@ flowchart LR
     E -->|Stop Hook Gate| F[Quality gate with anti-deadlock Circuit Breaker]
 ```
 
-### 1. Pre-Tool Navigation Guard (nav_guard.py)
-Intercepts `grep_search` and `find_by_name`. If a query contains code symbols (e.g., `UserService`, `handleSubmit`, `write_audit_log`), it denies execution and instructs the agent to use active LSP MCP tools (`serena`, `cclsp`) or targeted reading.
-
-### 2. Post-Tool Incremental Auditor (lsp_audit.py)
-Intercepts `write_to_file` and `replace_file_content`. Audits only modified files using a multi-tiered failover ladder:
-* Python: AST parsing (0ms) -> Ruff -> Pyright.
-* TypeScript / JS: Node --check -> Biome -> TSC.
-* Astro: Frontmatter format check -> @astrojs/check.
-* Rust: cargo check --message-format=json.
-* Go: go vet.
-* JSON / TOML: Native stdlib parsers.
-
-### 3. Nearest-Root Discovery (Monorepo Scalability)
-Automatically traverses parent directories to discover package boundaries (tsconfig.json, Cargo.toml, go.mod, pyproject.toml) and executes compiler diagnostics scoped to subpackages.
-
-### 4. Cross-File Reconciliation
-When a modified file passes cleanly, the auditor automatically re-validates remaining broken files in the session cache to clear resolved import/export errors.
-
-### 5. Ephemeral Ingestion (PreInvocation)
-Injects diagnostics into the model prompt via `ephemeralMessage`. The model fixes the error without cluttering the permanent conversation transcript.
-
-### 6. Quality Gate with Circuit Breaker (Stop)
-Prevents the agent from stopping while unresolved errors persist in cache. Automatically releases after 3 attempts (Circuit Breaker) to prevent infinite deadlocks.
+### Supported Languages & Tools:
+* **Python** (`.py`): AST (0ms) + Native `symtable` (catches undefined variables / NameErrors) + `ruff` + `pyright`.
+* **TypeScript / JavaScript** (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`): `node --check` + `biome` + `tsc`.
+* **Astro** (`.astro`): Frontmatter validation + `@astrojs/check`.
+* **PHP** (`.php`): Native static lint parsing via `php -l`.
+* **PowerShell** (`.ps1`, `.psm1`, `.psd1`): Native .NET AST Parser (`System.Management.Automation.Language.Parser`).
+* **Bash / Shell** (`.sh`, `.bash`, `.zsh`): Cold static syntax checking via `bash -n` / `sh -n`.
+* **Rust** (`.rs`): `cargo check --message-format=json`.
+* **Go** (`.go`): `go vet`.
+* **JSON / TOML** (`.json`, `.toml`): Native standard library parsers.
 
 ---
 
-## 3. Quick Installation
+## 3. Quick 1-Click Installation
 
-### Option A: Install as an Antigravity Global Plugin (Recommended)
-Copy the plugin folder to your global Antigravity configuration directory:
+### Windows (PowerShell / CMD)
+```powershell
+# PowerShell
+.\install.ps1
 
-```bash
-# Linux / macOS
-cp -r plugin/lsp-enforcement-kit ~/.gemini/config/plugins/
-
-# Windows (PowerShell)
-Copy-Item -Recurse -Force plugin/lsp-enforcement-kit "$env:USERPROFILE\.gemini\config\plugins\"
+# CMD (or double-click)
+install.cmd
 ```
 
-Enable the plugin inside Antigravity:
-```text
-/plugin enable lsp-enforcement-kit
-```
-
-### Option B: Project-Level Usage
-Simply place the plugin inside your project root:
+### Linux & macOS (Bash)
 ```bash
-mkdir -p .agents/plugins/
-cp -r plugin/lsp-enforcement-kit .agents/plugins/
+chmod +x install.sh
+./install.sh
 ```
 
 ---
@@ -87,16 +66,21 @@ cp -r plugin/lsp-enforcement-kit .agents/plugins/
 Verify installed compilers, linters, and session cache state at any time:
 
 ```bash
-python plugin/lsp-enforcement-kit/lsp_audit.py status
+python .agents/hooks/lsp_audit.py status
 ```
 
 ---
 
-## 5. Testing and Reproducibility
+## 5. Testing & Reproducibility
 
-### Run the Native Test Suite (0 dependencies)
+### Run the Native Test Suite (16 tests, 0 dependencies)
 ```bash
 python -m unittest discover tests -v
+```
+
+### Run Stress & Benchmarking Suite
+```bash
+python tests/stress_test_suite.py -v
 ```
 
 ### Run in Docker Sandbox
@@ -106,16 +90,6 @@ docker compose -f docker/docker-compose.yml run --rm audit-sandbox
 
 ---
 
-## 6. Token Savings Benchmark
-
-| Task | Standard Grep + Read | LSP Enforced | Savings |
-| :--- | :--- | :--- | :--- |
-| Find symbol definition | ~6,500 tokens (Grep + 2 file reads) | ~580 tokens (find_definition + targeted read) | ~91% |
-| Find symbol usages | ~1,500 tokens (Noisy Grep matches) | ~150 tokens (find_references) | ~90% |
-| Syntax verification | Manual developer debugging | 0 tokens overhead (auto-fixed in-loop) | 100% automated |
-
----
-
-## 7. License
+## 6. License
 
 MIT License. Designed with Ponytail (ULTRA) principles: minimal code, maximum speed, zero external dependencies, and 100% ASCII output compliance.

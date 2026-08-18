@@ -70,6 +70,20 @@ class TestAuditEngine(unittest.TestCase):
         errors_fixed = lsp_audit.audit_file(astro_file)
         self.assertEqual(len(errors_fixed), 0)
 
+    def test_php_syntax_check(self):
+        if shutil.which("php"):
+            php_file = os.path.join(self.test_dir, "bad.php")
+            with open(php_file, "w", encoding="utf-8") as f:
+                f.write("<?php function broken( { echo 'hi'; }")
+            errors = lsp_audit.audit_file(php_file)
+            self.assertTrue(len(errors) > 0, f"Expected PHP syntax error, got {errors}")
+
+            # Fix PHP file
+            with open(php_file, "w", encoding="utf-8") as f:
+                f.write("<?php function broken() { echo 'hi'; }")
+            errors_fixed = lsp_audit.audit_file(php_file)
+            self.assertEqual(len(errors_fixed), 0)
+
     def test_powershell_syntax_check(self):
         if shutil.which("powershell") or shutil.which("pwsh"):
             ps_file = os.path.join(self.test_dir, "script.ps1")
