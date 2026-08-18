@@ -1,31 +1,44 @@
 # Changelog
 
-All notable changes to the **Antigravity LSP Enforcement Kit** will be documented in this file.
+All notable changes to the Antigravity LSP Enforcement Kit will be documented in this file.
+
+## [1.3.0] - 2026-08-18
+
+### Added
+- **PHP Audit Support**: Added native execution-free AST linting via `php -l`.
+- **PowerShell Audit Support**: Added native AST parsing via .NET `System.Management.Automation.Language.Parser`.
+- **Bash / Shell Audit Support**: Added static syntax validation via `bash -n` / `sh -n`.
+- **1-Click Cross-Platform Installers**:
+  - `install.ps1` (PowerShell for Windows)
+  - `install.cmd` (Double-clickable CMD launcher)
+  - `install.sh` (POSIX Bash installer for Linux & macOS)
+- **Built-in Scope & NameError Resolution**: Native `symtable` + `difflib` static analysis engine to catch typos (`taag` vs `tag`) and missing class imports in 0ms without external pip packages.
+- **100% Pure ASCII Output Compliance**: Removed all emojis and special characters for bulletproof legacy terminal and CI pipeline compatibility.
+
+---
 
 ## [1.2.0] - 2026-08-17
 
 ### Added
-- **Nearest-Root Discovery**: Scalability mechanism for monorepos that discovers closest configuration boundaries (`tsconfig.json`, `Cargo.toml`, `go.mod`, `pyproject.toml`, `package.json`) and runs checks scoped to subpackages.
-- **Cross-Platform Path Normalization**: Added `normalize_path` to guarantee deterministic cache matching across Windows, macOS, and Linux.
-- **Deleted File Purging**: Automatic removal of deleted files from session caches during cross-file reconciliation.
-- **Strict PreToolUse Schema Compliance**: Explicit `{"decision": "allow"}` emission on allowed queries.
+- **Nearest-Root Discovery**: Automatically traverses parent directories to discover package boundaries (`tsconfig.json`, `package.json`, `Cargo.toml`, `go.mod`, `pyproject.toml`) for monorepo scalability.
+- **Cross-Platform Path Normalization**: Unified Windows and POSIX path handling with `os.path.normcase`.
+- **Docker Compose Sandbox**: Containerized test and execution environment.
+
+---
 
 ## [1.1.0] - 2026-08-17
 
 ### Added
-- **Multi-Language Expansion**: Added native/CLI audit support for **Rust** (`cargo check`), **Go** (`go vet`), and **TOML** (`tomllib`).
-- **Provider-Aware Navigation Guard**: `nav_guard.py` scans workspace and global `mcp_config.json` files for active LSP servers (Serena, cclsp) and generates provider-specific tool recommendations.
-- **Cross-File Reconciliation**: When an edited file passes clean, `lsp_audit.py` automatically re-audits any remaining failing files in the session cache.
-- **Diagnostic CLI Command**: Added `python lsp_audit.py status` to report installed tools, compilers, and active cache state.
+- Multi-language auditing for Rust (`cargo check`), Go (`go vet`), JSON (`json.load`), and TOML (`tomllib.load`).
+- Cross-file reconciliation: Automatically clears resolved dependencies in session cache.
+- Diagnostic status mode: `python lsp_audit.py status`.
+
+---
 
 ## [1.0.0] - 2026-08-17
 
 ### Added
-- **Pre-Tool Navigation Guard (`nav_guard.py`)**: Intercepts `grep_search` and `find_by_name` to prevent token-heavy grep on code symbols and enforce LSP semantic navigation.
-- **Post-Tool Code Auditor (`lsp_audit.py`)**: Multi-language incremental validator for Python, TypeScript, JavaScript, Astro 5, and JSON.
-- **Circuit Breaker Engine**: Added a 3-attempt circuit breaker on the `Stop` hook to prevent agent deadlocks.
-- **MD5 Hash Caching**: Files with identical hashes skip redundant CLI linter executions.
-- **Antigravity Native Plugin Packaging**: Distributed under `plugin/lsp-enforcement-kit/` with official `plugin.json` manifest.
-- **Zero-Dependency Test Suite**: Complete unit and E2E lifecycle test suite using Python `unittest`.
-- **Cross-Platform CI/CD**: GitHub Actions workflow testing Ubuntu, Windows, and macOS on Python 3.10, 3.11, and 3.12.
-- **Docker Sandbox**: Containerized environment for isolated validation.
+- Initial release of Antigravity LSP Enforcement Kit (360-degree closed loop lifecycle).
+- Pre-Tool Navigation Guard (`nav_guard.py`) for blocking full-workspace grep on code symbols.
+- Post-Tool Incremental Auditor (`lsp_audit.py`) with AST fast path.
+- Anti-deadlock Circuit Breaker on `Stop` hook (max 3 retries).

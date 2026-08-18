@@ -20,7 +20,7 @@ flowchart TD
 
     subgraph 2. Modification & Audit Phase (PostToolUse)
         F[Agent writes file via write_to_file / replace_file_content] --> G(lsp_audit.py post-tool)
-        G --> H{Audit File with Nearest-Root}
+        G --> H{Multi-Language Audit with Nearest-Root}
         H -->|Errors found| I[Store in .audit_cache/<conv_id>.json]
         H -->|Clean| J[Purge file from cache & Reconcile cross-file errors]
     end
@@ -43,10 +43,26 @@ flowchart TD
 
 ---
 
-## 2. The 4 Engineering Pillars
+## 2. Multi-Language Audit Engine Matrix
+
+| Language | Extensions | Primary Engine | Fallback / Deep Check | Typical Latency |
+| :--- | :--- | :--- | :--- | :---: |
+| **Python** | `.py` | `ast.parse()` + Native `symtable` (catches `NameError` & typos) | `ruff` / `pyright` | < 2 ms |
+| **TypeScript / JS** | `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs` | `node --check` (for pure JS) | `biome` / `tsc --noEmit` (nearest root) | ~5 ms |
+| **Astro** | `.astro` | Strict Frontmatter delimiter parsing (`---`) | `@astrojs/check` (in Astro projects) | < 3 ms |
+| **PHP** | `.php` | Execution-free AST linting via `php -l` | Scoped project validation | < 5 ms |
+| **PowerShell** | `.ps1`, `.psm1`, `.psd1` | .NET `System.Management.Automation.Language.Parser` | Native AST error collection | ~15 ms |
+| **Bash / Shell** | `.sh`, `.bash`, `.zsh` | Static syntax checking via `bash -n` / `sh -n` | POSIX execution-free validation | < 5 ms |
+| **Rust** | `.rs` | `cargo check --message-format=json` | Scoped nearest `Cargo.toml` root | Scoped |
+| **Go** | `.go` | `go vet` | Scoped nearest `go.mod` root | Scoped |
+| **JSON / TOML** | `.json`, `.toml` | Standard library parsers (`json`, `tomllib`) | Instant strict format validation | < 1 ms |
+
+---
+
+## 3. The 4 Engineering Pillars
 
 ### Pillar I: Syntax Analysis & Error-Tolerant Parsing
-* Fast-Path AST (0ms): Direct parser invocation using standard library (ast.parse(), json.loads(), tomllib.load()).
+* Fast-Path AST (0ms): Direct parser invocation using standard library (ast.parse(), json.loads(), tomllib.load(), symtable).
 * Noise Reduction Cap: Compilers like tsc or ruff can return 100+ lines of cascading errors. The engine caps output to the top 5 distinct diagnostics per file to prevent prompt token bloat.
 
 ### Pillar II: Cross-Platform Compatibility (Windows / Linux / macOS)

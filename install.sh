@@ -15,6 +15,12 @@ if ! command -v python3 &> /dev/null; then
 fi
 echo "  [OK] Python detected: $(python3 --version)"
 
+if command -v php &> /dev/null; then
+    echo "  [OK] PHP detected: $(php -v | head -n 1)"
+else
+    echo "  [INFO] PHP CLI not found. Install php-cli if developing in PHP."
+fi
+
 echo ""
 echo "[2/3] Installing recommended analysis tools..."
 pip3 install --quiet --upgrade ruff pyright 2>/dev/null || echo "  [WARN] Pip install failed; using built-in AST/Symtable."

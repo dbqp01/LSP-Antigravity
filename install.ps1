@@ -2,7 +2,7 @@
 .SYNOPSIS
     Instalador y configurador automatico del Antigravity LSP Enforcement Kit.
 .DESCRIPTION
-    1. Verifica e instala herramientas CLI recomendadas (Ruff, Pyright, Biome, TypeScript, Astro).
+    1. Verifica e instala herramientas CLI recomendadas (Ruff, Pyright, Biome, TypeScript, Astro, PHP).
     2. Copia y registra los hooks en el workspace (.agents/) y globalmente (~/.gemini/config/plugins/).
     3. Valida el estado final en puro formato ASCII.
 #>
@@ -18,13 +18,20 @@ Write-Host "============================================================" -Foreg
 Write-Host " Antigravity LSP Enforcement Kit - Instalador Automatico" -ForegroundColor Cyan
 Write-Host "============================================================" -ForegroundColor Cyan
 
-# 1. Verificacion de Python
+# 1. Verificacion de Entorno Base
 Write-Host "`n[1/3] Verificando entorno base..." -ForegroundColor Yellow
 if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
     Write-Error "[FAIL] Python no encontrado. Instala Python 3.10+ para continuar."
     exit 1
 }
 Write-Host "  [OK] Python detectado: $((python --version) 2>&1)" -ForegroundColor Green
+
+if (Get-Command php -ErrorAction SilentlyContinue) {
+    $phpVer = (php -v | Select-Object -First 1)
+    Write-Host "  [OK] PHP detectado: $phpVer" -ForegroundColor Green
+} else {
+    Write-Host "  [INFO] PHP CLI no detectado. Si programas en PHP: winget install PHP.PHP" -ForegroundColor DarkGray
+}
 
 # 2. Instalacion de Linters y Herramientas si no se omiten
 if (-not $SkipTools) {
