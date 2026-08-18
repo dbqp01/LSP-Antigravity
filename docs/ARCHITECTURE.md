@@ -1,4 +1,4 @@
-# Architecture: 360° LSP Lifecycle for Antigravity CLI
+# Architecture & Technical Deep Dive: 360° LSP Lifecycle for Antigravity CLI
 
 ## 1. Executive Summary
 
@@ -19,7 +19,7 @@ flowchart TD
 
     subgraph 2. Modification & Audit Phase (PostToolUse)
         F[Agent writes file via write_to_file / replace_file_content] --> G(lsp_audit.py post-tool)
-        G --> H{Audit File}
+        G --> H{Audit File with Nearest-Root}
         H -->|Errors found| I[Store in .audit_cache/<conv_id>.json]
         H -->|Clean| J[Purge file from cache & Reconcile cross-file errors]
     end
@@ -42,35 +42,24 @@ flowchart TD
 
 ---
 
-## 2. Component Breakdown
+## 2. The 4 Engineering Pillars
 
-### A. Pre-Tool Navigation Guard (`nav_guard.py`)
-* **Hook Trigger**: `PreToolUse` on `grep_search` and `find_by_name`.
-* **Provider Awareness**: Inspects workspace and global Antigravity `mcp_config.json` to dynamically detect active LSP servers (`serena`, `cclsp`, etc.).
-* **Heuristics**:
-  * Detects PascalCase (`UserService`), camelCase (`getUserById`), snake_case (`write_audit_log`), and property access (`auth.login`).
-  * Passes comments/keywords (`TODO`, `FIXME`), file globs (`*.ts`, `*.py`), CLI flags (`--verbose`), and multi-word conceptual queries.
-* **Result**: Blocks blind whole-repo greps and instructs the agent with concrete copy-pasteable MCP calls.
+### Pillar I: Syntax Analysis & Error-Tolerant Parsing
+* **Fast-Path AST (0ms)**: Direct parser invocation using standard library (`ast.parse()`, `json.loads()`, `tomllib.load()`).
+* **Noise Reduction Cap**: Compilers like `tsc` or `ruff` can return 100+ lines of cascading errors. The engine caps output to the top 5 distinct diagnostics per file to prevent prompt token bloat.
 
-### B. Post-Tool Incremental Auditor (`lsp_audit.py post-tool`)
-* **Hook Trigger**: `PostToolUse` on `write_to_file` and `replace_file_content`.
-* **Language Support Matrix**:
-  * **Python**: AST parsing (0ms) $\to$ Ruff (`--select=E,F`) $\to$ Pyright.
-  * **TypeScript / JS**: Node `--check` $\to$ Biome $\to$ TSC (`--noEmit`).
-  * **Astro**: Frontmatter structural check $\to$ `@astrojs/check`.
-  * **Rust**: `cargo check --message-format=json` (if `Cargo.toml` exists).
-  * **Go**: `go vet`.
-  * **JSON / TOML**: Native stdlib parsers (`json.loads`, `tomllib`).
-* **Hash-based Caching**: Uses MD5 hashes to skip redundant CLI calls when file contents do not change.
-* **Cross-File Reconciliation**: When an edited file passes clean, the engine automatically re-checks remaining broken files in the session cache to clear resolved dependency errors.
+### Pillar II: Cross-Platform Compatibility (Windows / Linux / macOS)
+* **Path Normalization**: Windows mixed path separators (`/` vs `\`) and case insensitivity are unified via `os.path.normcase(os.path.abspath(path))` to prevent duplicate or missing cache entries.
+* **Console UTF-8 Encoding**: Explicit `sys.stdout.reconfigure(encoding="utf-8")` prevents `UnicodeEncodeError` on Windows consoles with legacy codepages (CP1252/CP850).
+* **Cross-Platform Subprocess Escaping**: Commands execute with `shell=True` on Windows and direct execution on Unix without external shell dependencies.
 
-### C. Context Injection (`lsp_audit.py pre-invocation`)
-* Injects errors as an `ephemeralMessage`.
-* **Zero Context Bloat**: Diagnostics disappear on subsequent steps and do not pollute the permanent transcript history.
+### Pillar III: Scalability in Monorepos (Nearest-Root Discovery)
+* **The Monorepo Bottleneck**: In monorepos (e.g. 50+ packages, >200k lines), running `tsc` or `cargo check` at the project root causes 10–30s freezes and massive memory spikes.
+* **Nearest-Root Discovery**:
+  * Walks upward from the target file to locate the closest boundary marker (`tsconfig.json`, `package.json`, `Cargo.toml`, `go.mod`, `pyproject.toml`).
+  * Runs the validator scoped strictly to that package boundary.
 
-### D. Quality Gate & Circuit Breaker (`lsp_audit.py stop`)
-* Blocks `Stop` if syntax or critical type errors exist in cache.
-* **Circuit Breaker**: After 3 consecutive stop blocks, the gate releases (*fail-open*) to prevent infinite deadlocks and token depletion.
-
-### E. Diagnostic Status CLI (`lsp_audit.py status`)
-* Standalone inspection mode to verify installed linters, compilers, and active session caches.
+### Pillar IV: Robustness & Circuit Breaker Engine
+* **Anti-Deadlock Circuit Breaker**: If the agent attempts to stop while errors persist, it blocks up to **3 consecutive attempts** (`decision: continue`). On the 4th attempt, the gate opens (*fail-open*) to prevent infinite API billing loops.
+* **Cross-File Reconciliation**: When a shared file (e.g., `types.ts`) is fixed, the engine automatically re-checks all remaining failing files in the session cache to clear resolved downstream errors.
+* **Dead File Purging**: If a broken file is deleted by the agent, it is immediately removed from the audit cache.

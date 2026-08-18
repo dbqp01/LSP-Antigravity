@@ -24,6 +24,9 @@ class TestHooksE2E(unittest.TestCase):
         file_a = os.path.join(self.test_dir, "script_a.py")
         file_b = os.path.join(self.test_dir, "script_b.py")
 
+        norm_a = lsp_audit.normalize_path(file_a)
+        norm_b = lsp_audit.normalize_path(file_b)
+
         # 1. Agente escribe script_a con error
         with open(file_a, "w", encoding="utf-8") as f:
             f.write("def broken(:\n    pass\n")
@@ -35,7 +38,7 @@ class TestHooksE2E(unittest.TestCase):
         })
 
         cache = lsp_audit.load_cache(lsp_audit.get_cache_file(self.conv_id))
-        self.assertIn(os.path.abspath(file_a), cache["files"])
+        self.assertIn(norm_a, cache["files"])
 
         # 2. Agente escribe script_b con error
         with open(file_b, "w", encoding="utf-8") as f:
@@ -81,8 +84,8 @@ class TestHooksE2E(unittest.TestCase):
         })
 
         cache = lsp_audit.load_cache(lsp_audit.get_cache_file(self.conv_id))
-        self.assertNotIn(os.path.abspath(file_a), cache["files"])
-        self.assertIn(os.path.abspath(file_b), cache["files"])
+        self.assertNotIn(norm_a, cache["files"])
+        self.assertIn(norm_b, cache["files"])
 
         # 6. Agente arregla script_b
         with open(file_b, "w", encoding="utf-8") as f:

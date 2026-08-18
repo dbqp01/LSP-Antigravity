@@ -1,7 +1,9 @@
 """
 LSP/ACP Post-Write Code Auditor & Quality Gate for Antigravity CLI.
-Ponytail (ULTRA) Architecture:
+Ponytail (ULTRA) Production Architecture:
 - Python stdlib only (zero pip dependencies).
+- Nearest-Root Discovery (Scales seamlessly in monorepos by isolating subpackages).
+- Cross-platform path normalization (Windows/macOS/Linux case & separator consistency).
 - Multi-language support: Python, TypeScript, JavaScript, Astro, Rust, Go, JSON, TOML.
 - Cross-file reconciliation: Re-checks failing files in session after shared fixes.
 - Circuit breaker on Stop hook (prevents infinite agent deadlocks, max 3 retries).
@@ -34,6 +36,14 @@ CACHE_DIR = pathlib.Path(".agents/.audit_cache")
 MAX_STOP_ATTEMPTS = 3
 TIMEOUT = 10
 
+def normalize_path(filepath: str) -> str:
+    """Normalizes path casing and separators for robust cross-platform comparison."""
+    if not filepath:
+        return ""
+    abs_path = os.path.abspath(filepath)
+    # On Windows, normalize casing to avoid duplicate cache keys
+    return os.path.normcase(abs_path) if os.name == "nt" else abs_path
+
 def get_cache_file(conv_id: str) -> pathlib.Path:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     safe_id = "".join(c for c in conv_id if c.isalnum() or c in "-_")
@@ -64,10 +74,11 @@ def save_cache(cache_path: pathlib.Path, cache: dict):
     else:
         cache_path.unlink(missing_ok=True)
 
-def run_cmd(cmd: list[str], timeout: int = TIMEOUT) -> subprocess.CompletedProcess:
+def run_cmd(cmd: list[str], cwd: str | None = None, timeout: int = TIMEOUT) -> subprocess.CompletedProcess:
     try:
         return subprocess.run(
             cmd,
+            cwd=cwd,
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -78,6 +89,18 @@ def run_cmd(cmd: list[str], timeout: int = TIMEOUT) -> subprocess.CompletedProce
     except Exception as e:
         return subprocess.CompletedProcess(cmd, -1, stdout="", stderr=str(e))
 
+def find_nearest_root(filepath: str, markers: list[str]) -> pathlib.Path | None:
+    """Finds nearest ancestor directory containing any of the marker files."""
+    try:
+        cur = pathlib.Path(filepath).resolve().parent
+        for p in [cur] + list(cur.parents):
+            for marker in markers:
+                if (p / marker).exists():
+                    return p
+    except Exception:
+        pass
+    return None
+
 def parse_tool_args(args: dict) -> str | None:
     possible_keys = [
         "TargetFile", "target_file", "file_path", "filePath", "path", "file", "filename"
@@ -85,15 +108,16 @@ def parse_tool_args(args: dict) -> str | None:
     for key in possible_keys:
         val = args.get(key)
         if val and isinstance(val, str):
-            return os.path.abspath(val)
+            return normalize_path(val)
     if "file" in args and isinstance(args["file"], dict):
         for key in possible_keys:
             val = args["file"].get(key)
             if val and isinstance(val, str):
-                return os.path.abspath(val)
+                return normalize_path(val)
     return None
 
 def audit_python(filepath: str) -> list[str]:
+    # 1. AST syntax check (0ms, 100% reliable)
     try:
         with open(filepath, "r", encoding="utf-8") as f:
             ast.parse(f.read(), filename=filepath)
@@ -102,13 +126,16 @@ def audit_python(filepath: str) -> list[str]:
     except Exception as e:
         return [f"[Python ReadError] {filepath}: {e}"]
 
+    # 2. Fast CLI Linter if available
     if shutil.which("ruff"):
         res = run_cmd(["ruff", "check", "--select=E,F", "--output-format=concise", filepath])
         if res.returncode != 0 and res.stdout.strip():
             lines = [l for l in res.stdout.splitlines() if ":" in l and not l.startswith("Found")]
             return lines[:5]
     elif shutil.which("pyright"):
-        res = run_cmd(["pyright", "--outputjson", filepath])
+        py_root = find_nearest_root(filepath, ["pyproject.toml", "setup.py", "requirements.txt"])
+        cwd = str(py_root) if py_root else None
+        res = run_cmd(["pyright", "--outputjson", filepath], cwd=cwd)
         if res.stdout:
             try:
                 data = json.loads(res.stdout)
@@ -127,22 +154,27 @@ def audit_python(filepath: str) -> list[str]:
 
 def audit_typescript_javascript(filepath: str) -> list[str]:
     ext = os.path.splitext(filepath)[1].lower()
+    # 1. Node check for pure JS
     if ext in (".js", ".mjs", ".cjs") and shutil.which("node"):
         res = run_cmd(["node", "--check", filepath])
         if res.returncode != 0 and res.stderr:
             return [f"[JS SyntaxError] {res.stderr.strip().splitlines()[-1]}"]
 
-    has_biome = shutil.which("biome") is not None or os.path.exists("node_modules/.bin/biome") or os.path.exists("node_modules/.bin/biome.cmd")
-    has_tsc = shutil.which("tsc") is not None or os.path.exists("node_modules/.bin/tsc") or os.path.exists("node_modules/.bin/tsc.cmd")
+    # 2. Monorepo subpackage root detection
+    ts_root = find_nearest_root(filepath, ["tsconfig.json", "package.json"])
+    cwd = str(ts_root) if ts_root else None
+
+    has_biome = shutil.which("biome") is not None or (ts_root and (ts_root / "node_modules/.bin/biome").exists())
+    has_tsc = shutil.which("tsc") is not None or (ts_root and (ts_root / "node_modules/.bin/tsc").exists())
 
     if has_biome:
         cmd = ["npx", "biome", "lint", filepath] if not shutil.which("biome") else ["biome", "lint", filepath]
-        res = run_cmd(cmd)
+        res = run_cmd(cmd, cwd=cwd)
         if res.returncode != 0:
             return [f"[Biome Lint] Issues found in {filepath}."]
     elif has_tsc:
         cmd = ["npx", "tsc", "--noEmit"] if not shutil.which("tsc") else ["tsc", "--noEmit"]
-        res = run_cmd(cmd)
+        res = run_cmd(cmd, cwd=cwd)
         if res.returncode != 0 and res.stdout:
             lines = [l for l in res.stdout.splitlines() if "error TS" in l]
             file_ts_errors = [l for l in lines if os.path.basename(filepath) in l]
@@ -158,14 +190,16 @@ def audit_astro(filepath: str) -> list[str]:
     except Exception as e:
         return [f"[Astro ReadError] {filepath}: {e}"]
 
+    astro_root = find_nearest_root(filepath, ["astro.config.mjs", "astro.config.ts", "package.json"])
+    cwd = str(astro_root) if astro_root else None
+
     has_astro = (
         shutil.which("astro") is not None
-        or os.path.exists("node_modules/.bin/astro")
-        or os.path.exists("node_modules/.bin/astro.cmd")
+        or (astro_root and (astro_root / "node_modules/.bin/astro").exists())
     )
     if has_astro:
         cmd = ["npx", "astro", "check"] if not shutil.which("astro") else ["astro", "check"]
-        res = run_cmd(cmd, timeout=15)
+        res = run_cmd(cmd, cwd=cwd, timeout=15)
         if res.returncode != 0:
             output = (res.stdout or "") + "\n" + (res.stderr or "")
             lines = [l for l in output.splitlines() if "error" in l.lower() or "TS" in l]
@@ -175,15 +209,9 @@ def audit_astro(filepath: str) -> list[str]:
 
 def audit_rust(filepath: str) -> list[str]:
     if shutil.which("cargo"):
-        # Check if inside a cargo workspace
-        parent = pathlib.Path(filepath).parent
-        cargo_root = None
-        for p in [parent] + list(parent.parents):
-            if (p / "Cargo.toml").exists():
-                cargo_root = p
-                break
+        cargo_root = find_nearest_root(filepath, ["Cargo.toml"])
         if cargo_root:
-            res = run_cmd(["cargo", "check", "--message-format=json"], timeout=15)
+            res = run_cmd(["cargo", "check", "--message-format=json"], cwd=str(cargo_root), timeout=15)
             if res.returncode != 0 and res.stdout:
                 errors = []
                 for line in res.stdout.splitlines():
@@ -202,8 +230,9 @@ def audit_rust(filepath: str) -> list[str]:
 
 def audit_go(filepath: str) -> list[str]:
     if shutil.which("go"):
-        dir_path = os.path.dirname(filepath)
-        res = run_cmd(["go", "vet", filepath], timeout=10)
+        go_root = find_nearest_root(filepath, ["go.mod"])
+        cwd = str(go_root) if go_root else os.path.dirname(filepath)
+        res = run_cmd(["go", "vet", filepath], cwd=cwd, timeout=10)
         if res.returncode != 0 and res.stderr:
             return [f"[Go Vet] {l}" for l in res.stderr.splitlines()[:5]]
     return []
@@ -258,6 +287,10 @@ def reconcile_cross_file_errors(cache: dict) -> bool:
             else:
                 cache["files"][fpath]["errors"] = current_errors
                 cache["files"][fpath]["hash"] = get_file_hash(fpath)
+        else:
+            # File deleted on disk: clear from cache
+            cache["files"].pop(fpath, None)
+            changed = True
     return changed
 
 def handle_post_tool(payload: dict):
@@ -267,19 +300,17 @@ def handle_post_tool(payload: dict):
     conv_id = payload.get("conversationId", "default")
 
     if target_file and os.path.exists(target_file):
-        target_abs = os.path.abspath(target_file)
-        current_hash = get_file_hash(target_abs)
+        current_hash = get_file_hash(target_file)
         cache_path = get_cache_file(conv_id)
         cache = load_cache(cache_path)
 
-        cached_entry = cache["files"].get(target_abs)
+        cached_entry = cache["files"].get(target_file)
         if not (cached_entry and cached_entry.get("hash") == current_hash and not cached_entry.get("errors")):
-            errors = audit_file(target_abs)
+            errors = audit_file(target_file)
             if errors:
-                cache["files"][target_abs] = {"errors": errors, "hash": current_hash}
+                cache["files"][target_file] = {"errors": errors, "hash": current_hash}
             else:
-                cache["files"].pop(target_abs, None)
-                # If target_file was fixed, reconcile other failing files
+                cache["files"].pop(target_file, None)
                 if cache.get("files"):
                     reconcile_cross_file_errors(cache)
 

@@ -69,17 +69,31 @@ class TestAuditEngine(unittest.TestCase):
         with open(file_b, "w", encoding="utf-8") as f:
             f.write("def bar(:\n pass\n")
 
+        norm_a = lsp_audit.normalize_path(file_a)
+        norm_b = lsp_audit.normalize_path(file_b)
+
         cache = {
             "files": {
-                os.path.abspath(file_a): {"errors": ["Old error"], "hash": "123"},
-                os.path.abspath(file_b): {"errors": ["Syntax error"], "hash": "456"}
+                norm_a: {"errors": ["Old error"], "hash": "123"},
+                norm_b: {"errors": ["Syntax error"], "hash": "456"}
             },
             "stop_attempts": 0
         }
         # file_a is now valid on disk, file_b is still broken
         lsp_audit.reconcile_cross_file_errors(cache)
-        self.assertNotIn(os.path.abspath(file_a), cache["files"])
-        self.assertIn(os.path.abspath(file_b), cache["files"])
+        self.assertNotIn(norm_a, cache["files"])
+        self.assertIn(norm_b, cache["files"])
+
+    def test_nearest_root_discovery(self):
+        subpkg = pathlib.Path(self.test_dir) / "packages" / "app"
+        subpkg.mkdir(parents=True, exist_ok=True)
+        (subpkg / "package.json").write_text('{"name": "app"}', encoding="utf-8")
+        src_file = subpkg / "src" / "index.ts"
+        src_file.parent.mkdir(parents=True, exist_ok=True)
+        src_file.write_text("console.log('hi');", encoding="utf-8")
+
+        detected_root = lsp_audit.find_nearest_root(str(src_file), ["package.json"])
+        self.assertEqual(detected_root, subpkg)
 
     def test_circuit_breaker_anti_deadlock(self):
         cache_path = lsp_audit.get_cache_file(self.conv_id)

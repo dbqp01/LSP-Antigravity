@@ -2,11 +2,19 @@
 
 All notable changes to the **Antigravity LSP Enforcement Kit** will be documented in this file.
 
+## [1.2.0] - 2026-08-17
+
+### Added
+- **Nearest-Root Discovery**: Scalability mechanism for monorepos that discovers closest configuration boundaries (`tsconfig.json`, `Cargo.toml`, `go.mod`, `pyproject.toml`, `package.json`) and runs checks scoped to subpackages.
+- **Cross-Platform Path Normalization**: Added `normalize_path` to guarantee deterministic cache matching across Windows, macOS, and Linux.
+- **Deleted File Purging**: Automatic removal of deleted files from session caches during cross-file reconciliation.
+- **Strict PreToolUse Schema Compliance**: Explicit `{"decision": "allow"}` emission on allowed queries.
+
 ## [1.1.0] - 2026-08-17
 
 ### Added
 - **Multi-Language Expansion**: Added native/CLI audit support for **Rust** (`cargo check`), **Go** (`go vet`), and **TOML** (`tomllib`).
-- **Provider-Aware Navigation Guard**: `nav_guard.py` now scans workspace and global `mcp_config.json` files for active LSP servers (Serena, cclsp) and generates provider-specific tool recommendations.
+- **Provider-Aware Navigation Guard**: `nav_guard.py` scans workspace and global `mcp_config.json` files for active LSP servers (Serena, cclsp) and generates provider-specific tool recommendations.
 - **Cross-File Reconciliation**: When an edited file passes clean, `lsp_audit.py` automatically re-audits any remaining failing files in the session cache.
 - **Diagnostic CLI Command**: Added `python lsp_audit.py status` to report installed tools, compilers, and active cache state.
 
