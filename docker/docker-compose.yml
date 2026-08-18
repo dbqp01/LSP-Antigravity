@@ -1,0 +1,10 @@
+services:
+  audit-sandbox:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: antigravity-lsp-sandbox:latest
+    container_name: antigravity_lsp_sandbox
+    volumes:
+      - ..:/workspace
+    command: python3 -m unittest discover tests -v
