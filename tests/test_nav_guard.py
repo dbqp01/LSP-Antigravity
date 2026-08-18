@@ -66,5 +66,22 @@ class TestNavGuard(unittest.TestCase):
         finally:
             sys.stdout = old_stdout
 
+    def test_handle_pre_tool_allow(self):
+        payload = {
+            "conversationId": "test-123",
+            "toolCall": {
+                "name": "grep_search",
+                "args": {"Query": "TODO: fix memory leak"}
+            }
+        }
+        old_stdout = sys.stdout
+        sys.stdout = io.StringIO()
+        try:
+            nav_guard.handle_pre_tool(payload)
+            output = json.loads(sys.stdout.getvalue())
+            self.assertEqual(output.get("decision"), "allow")
+        finally:
+            sys.stdout = old_stdout
+
 if __name__ == "__main__":
     unittest.main()

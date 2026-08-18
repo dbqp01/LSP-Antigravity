@@ -119,12 +119,12 @@ def handle_pre_tool(payload: dict):
             }))
             return
 
-    # Allow tool execution
-    print(json.dumps({}))
+    # Conforms strictly to PreToolUse schema
+    print(json.dumps({"decision": "allow"}))
 
 def main():
     if len(sys.argv) < 2 or sys.argv[1] != "pre-tool":
-        print(json.dumps({}))
+        print(json.dumps({"decision": "allow"}))
         return
 
     try:
