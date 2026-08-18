@@ -34,7 +34,6 @@ class TestAuditEngine(unittest.TestCase):
         self.assertEqual(len(errors_fixed), 0)
 
     def test_python_undefined_name_detection(self):
-        # Exact reproduction of user case: parser.target_tag = taag (NameError)
         py_file = os.path.join(self.test_dir, "scraper_typo.py")
         code = (
             "class SimpleParser:\n"
@@ -70,6 +69,20 @@ class TestAuditEngine(unittest.TestCase):
             f.write("---\nconst title = 'Test';\n---\n<div>Valid</div>")
         errors_fixed = lsp_audit.audit_file(astro_file)
         self.assertEqual(len(errors_fixed), 0)
+
+    def test_powershell_syntax_check(self):
+        if shutil.which("powershell") or shutil.which("pwsh"):
+            ps_file = os.path.join(self.test_dir, "script.ps1")
+            with open(ps_file, "w", encoding="utf-8") as f:
+                f.write("function test-func {\n    Write-Host 'unclosed function'\n")
+            errors = lsp_audit.audit_file(ps_file)
+            self.assertTrue(len(errors) > 0, f"Expected PowerShell syntax error, got {errors}")
+
+            # Fix PowerShell script
+            with open(ps_file, "w", encoding="utf-8") as f:
+                f.write("function test-func {\n    Write-Host 'closed function'\n}\n")
+            errors_fixed = lsp_audit.audit_file(ps_file)
+            self.assertEqual(len(errors_fixed), 0)
 
     def test_json_syntax_check(self):
         json_file = os.path.join(self.test_dir, "data.json")

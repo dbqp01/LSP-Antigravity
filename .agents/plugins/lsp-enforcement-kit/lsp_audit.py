@@ -5,12 +5,17 @@ Ponytail (ULTRA) Production Architecture:
 - Pure ASCII standard compliance (no unicode emojis in outputs).
 - Built-in Semantic Scope & Undefined Name Resolution (symtable + difflib):
   Catches NameError typos (e.g. 'taag' vs 'tag') statically in 0ms without external linters.
-- Python Module Invocation Fallback (sys.executable -m ruff/pyright):
-  Detects tools even if Python's Scripts/ directory is missing from system PATH.
+- Multi-Language & Console Scripts Support:
+  * Python (.py): AST + Native Symtable + Ruff + Pyright
+  * TypeScript / JavaScript (.ts, .tsx, .js, .jsx, .mjs, .cjs): Node --check + Biome + TSC
+  * Astro (.astro): Frontmatter verification + @astrojs/check
+  * Shell Scripts (.sh, .bash, .zsh): Static parser via bash -n / sh -n
+  * PowerShell (.ps1, .psm1, .psd1): Native AST Parser via System.Management.Automation
+  * Rust (.rs): Cargo check
+  * Go (.go): Go vet
+  * JSON (.json) & TOML (.toml): Native standard parsers
 - Nearest-Root Discovery (Scales seamlessly in monorepos by isolating subpackages).
 - Cross-platform path normalization (Windows/macOS/Linux case & separator consistency).
-- Multi-language support: Python, TypeScript, JavaScript, Astro, Rust, Go, JSON, TOML.
-- Cross-file reconciliation: Re-checks failing files in session after shared fixes.
 - Circuit breaker on Stop hook (prevents infinite agent deadlocks, max 3 retries).
 - Content-hash caching (zero redundant CLI invocations on clean files).
 - Fast failover ladder (AST/Symtable -> CLI Linters -> Graceful degradation).
@@ -27,6 +32,7 @@ import hashlib
 import builtins
 import difflib
 import symtable
+import base64
 
 # Python 3.11+ TOML support in stdlib
 try:
@@ -149,7 +155,6 @@ def audit_python_scope_symbols(source: str, filepath: str) -> list[str]:
         scope = stack.pop()
         for s in scope.get_symbols():
             name = s.get_name()
-            # If variable is referenced as global but not defined globally or in builtins
             if s.is_global() and not s.is_local() and not s.is_imported() and not s.is_assigned():
                 if name not in global_assigned and name not in built_in_names and not name.startswith("__"):
                     local_names = {sym.get_name() for sym in scope.get_symbols() if sym.is_local() or sym.is_assigned()}
@@ -175,12 +180,12 @@ def audit_python(filepath: str) -> list[str]:
     except Exception as e:
         return [f"[Python ReadError] {filepath}: {e}"]
 
-    # 2. Built-in Scope & Symbol Table Resolution (Catches NameError/undefined variables in < 2ms)
+    # 2. Built-in Scope & Symbol Table Resolution (Catches NameError in < 2ms)
     scope_errors = audit_python_scope_symbols(content, filepath)
     if scope_errors:
         return scope_errors
 
-    # 3. Fast CLI Linter if available (Ruff / Pyright with python -m fallback)
+    # 3. Fast CLI Linter (Ruff / Pyright with python -m fallback)
     ruff_cmd = get_python_tool_cmd("ruff")
     if ruff_cmd:
         res = run_cmd(ruff_cmd + ["check", "--select=E,F", "--output-format=concise", filepath])
@@ -255,7 +260,7 @@ def audit_astro(filepath: str) -> list[str]:
 
     has_astro = (
         shutil.which("astro") is not None
-        or (astro_root / "node_modules/.bin/astro").exists()
+        or (astro_root and (astro_root / "node_modules/.bin/astro").exists())
     )
     if has_astro:
         cmd = ["npx", "astro", "check"] if not shutil.which("astro") else ["astro", "check"]
@@ -265,6 +270,35 @@ def audit_astro(filepath: str) -> list[str]:
             lines = [l for l in output.splitlines() if "error" in l.lower() or "TS" in l]
             file_errors = [l for l in lines if os.path.basename(filepath) in l]
             return (file_errors or lines)[:5]
+    return []
+
+def audit_shell(filepath: str) -> list[str]:
+    """Audits Bash/sh shell scripts using static -n syntax validation."""
+    shell_cmd = shutil.which("bash") or shutil.which("sh")
+    if shell_cmd:
+        res = run_cmd([shell_cmd, "-n", filepath], timeout=5)
+        if res.returncode != 0:
+            output = (res.stderr or res.stdout or "").strip()
+            lines = [l for l in output.splitlines() if l.strip()]
+            return [f"[Shell SyntaxError] {l}" for l in lines[:5]]
+    return []
+
+def audit_powershell(filepath: str) -> list[str]:
+    """Audits PowerShell scripts (.ps1, .psm1) using native Language.Parser AST."""
+    ps_cmd = shutil.which("pwsh") or shutil.which("powershell")
+    if ps_cmd:
+        # Use safe Base64 script to avoid CLI escaping issues
+        clean_path = filepath.replace("'", "''")
+        ps_snippet = (
+            f"$errs = $null; "
+            f"[System.Management.Automation.Language.Parser]::ParseFile('{clean_path}', [ref]$null, [ref]$errs) | Out-Null; "
+            f"if ($errs) {{ foreach ($e in $errs) {{ Write-Output ('[PowerShell SyntaxError] Line ' + $e.Extent.StartLineNumber + ': ' + $e.Message) }} }}"
+        )
+        encoded = base64.b64encode(ps_snippet.encode("utf-16le")).decode("ascii")
+        res = run_cmd([ps_cmd, "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded], timeout=5)
+        if res.stdout.strip():
+            lines = [l for l in res.stdout.splitlines() if l.strip()]
+            return lines[:5]
     return []
 
 def audit_rust(filepath: str) -> list[str]:
@@ -326,6 +360,10 @@ def audit_file(filepath: str) -> list[str]:
         return audit_typescript_javascript(filepath)
     elif ext == ".astro":
         return audit_astro(filepath)
+    elif ext in (".sh", ".bash", ".zsh"):
+        return audit_shell(filepath)
+    elif ext in (".ps1", ".psm1", ".psd1"):
+        return audit_powershell(filepath)
     elif ext == ".rs":
         return audit_rust(filepath)
     elif ext == ".go":
@@ -451,6 +489,8 @@ def print_status():
         "TypeScript (tsc)": "[OK] Available" if shutil.which("tsc") else "[FAIL] Not found",
         "Biome": "[OK] Available" if shutil.which("biome") else "[FAIL] Not found",
         "Astro CLI": "[OK] Available" if shutil.which("astro") else "[FAIL] Not found",
+        "Shell (bash/sh)": "[OK] Available" if (shutil.which("bash") or shutil.which("sh")) else "[FAIL] Not found",
+        "PowerShell": "[OK] Available" if (shutil.which("pwsh") or shutil.which("powershell")) else "[FAIL] Not found",
         "Cargo (Rust)": "[OK] Available" if shutil.which("cargo") else "[FAIL] Not found",
         "Go": "[OK] Available" if shutil.which("go") else "[FAIL] Not found",
         "TOML Parser": "[OK] Available (stdlib)" if tomllib else "[FAIL] Not found (< Python 3.11)",
