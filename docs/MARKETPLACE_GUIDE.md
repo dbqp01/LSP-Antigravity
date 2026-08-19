@@ -1,4 +1,4 @@
-﻿# Guia de Publicacion e Instalacion en el Marketplace de Antigravity (AGY)
+# Guia de Publicacion e Instalacion en el Marketplace de Antigravity (AGY)
 
 Este documento detalla el procedimiento oficial y estandarizado para distribuir, instalar y publicar el **Antigravity LSP Enforcement Kit** en el ecosistema de **Google Antigravity CLI (gy)**.
 
@@ -11,7 +11,7 @@ Antigravity CLI gestiona sus plugins a traves de tres mecanismos complementarios
 1. **Instalacion Directa por Repositorio Git (Recomendado / Inmediato)**:
    Cualquier usuario con Antigravity CLI puede instalar este plugin apuntando al repositorio de GitHub:
    `ash
-   agy plugin install https://github.com/dbqp01/LSP-Antigravity
+   agy plugin install https://github.com/dbqp01/LSP-Antigravity-CLI
    `
    El CLI clona el repositorio en ~/.gemini/antigravity-cli/plugins/lsp-enforcement-kit, registra las herramientas MCP y activa los hooks de ciclo de vida automaticamente.
 
@@ -75,7 +75,7 @@ agy plugin validate .
      description: 360-degree LSP Lifecycle, Navigation Guard & Quality Gate for Antigravity CLI,
      author: dbqp01,
      license: MIT,
-     repository: https://github.com/dbqp01/LSP-Antigravity
+     repository: https://github.com/dbqp01/LSP-Antigravity-CLI
    }
    `
 
@@ -88,7 +88,7 @@ agy plugin validate .
    `
 
 3. **Generar un GitHub Release**:
-   - Ir a https://github.com/dbqp01/LSP-Antigravity/releases/new.
+   - Ir a https://github.com/dbqp01/LSP-Antigravity-CLI/releases/new.
    - Seleccionar el tag 1.2.0.
    - Publicar el release con las notas de version de docs/CHANGELOG.md.
 
