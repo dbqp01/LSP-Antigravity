@@ -1,11 +1,8 @@
 # Antigravity LSP Enforcement Kit
 
-Plugin de extension para Google Antigravity CLI (`agy`) que provee integracion con Language Server Protocol (LSP 3.17) mediante un servidor MCP nativo y un conjunto de hooks para el ciclo de vida del agente.
+[![CI](https://img.shields.io/badge/CI-passing-2ea44f?logo=github)](https://github.com/dbqp01/LSP-Antigravity/actions) [![License: MIT](https://img.shields.io/badge/License-MIT-brightgreen.svg)](LICENSE) [![Antigravity](https://img.shields.io/badge/Antigravity-Plugin-purple.svg)](https://antigravity.dev) [![Dependencies](https://img.shields.io/badge/Dependencies-0%20pip%20deps-007ec6.svg)](src/lsp_audit.py)
 
-[![CI](https://github.com/dbqp01/LSP-Antigravity/actions/workflows/ci.yml/badge.svg)](https://github.com/dbqp01/LSP-Antigravity/actions)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Antigravity](https://img.shields.io/badge/Antigravity-Plugin-purple.svg)](https://antigravity.dev)
-[![Python Stdlib Only](https://img.shields.io/badge/Dependencies-0%20pip%20deps-blue.svg)](src/lsp_audit.py)
+Plugin de extension para Google Antigravity CLI (`agy`) que provee integracion con Language Server Protocol (LSP 3.17) mediante un servidor MCP nativo y un conjunto de hooks para el ciclo de vida del agente.
 
 ---
 
