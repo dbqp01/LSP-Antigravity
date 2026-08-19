@@ -24,53 +24,56 @@ def main():
         "conversationId": conv_id,
         "toolCall": {"name": "grep_search", "args": {"Query": "calculateTotalAmount"}}
     }
-    p1 = subprocess.run(["python3", "plugin/lsp-enforcement-kit/nav_guard.py", "pre-tool"],
+    p1 = subprocess.run([sys.executable, "src/nav_guard.py", "pre-tool"],
                         input=json.dumps(grep_payload), text=True, capture_output=True)
     print("\n[Paso 1 - PreToolUse Navigation Guard]:")
     print("  Accion agente: grep_search('calculateTotalAmount')")
     print("  Respuesta del Harness:", p1.stdout.strip())
 
-    # Paso 2: Agente escribe archivo con error de sintaxis en src/service.py
-    os.makedirs("src", exist_ok=True)
-    with open("src/service.py", "w", encoding="utf-8") as f:
+    # Paso 2: Agente escribe archivo con error de sintaxis en demo_service.py
+    demo_file = "demo_service.py"
+    with open(demo_file, "w", encoding="utf-8") as f:
         f.write("def calculate_total(a, b:\n    return a + b\n")
 
     write_payload = {
         "conversationId": conv_id,
-        "toolCall": {"name": "write_to_file", "args": {"TargetFile": "src/service.py"}}
+        "toolCall": {"name": "write_to_file", "args": {"TargetFile": demo_file}}
     }
-    p2 = subprocess.run(["python3", "plugin/lsp-enforcement-kit/lsp_audit.py", "post-tool"],
+    p2 = subprocess.run([sys.executable, "src/lsp_audit.py", "post-tool"],
                         input=json.dumps(write_payload), text=True, capture_output=True)
     print("\n[Paso 2 - PostToolUse Code Audit]:")
-    print("  Accion agente: write_to_file('src/service.py') con sintaxis rota")
+    print(f"  Accion agente: write_to_file('{demo_file}') con sintaxis rota")
     print("  Respuesta del Harness (vacia, contract OK):", p2.stdout.strip() or "{}")
 
     # Paso 3: Siguiente ciclo, PreInvocation inyecta diagnostico efimero
-    p3 = subprocess.run(["python3", "plugin/lsp-enforcement-kit/lsp_audit.py", "pre-invocation"],
+    p3 = subprocess.run([sys.executable, "src/lsp_audit.py", "pre-invocation"],
                         input=json.dumps({"conversationId": conv_id}), text=True, capture_output=True)
     print("\n[Paso 3 - PreInvocation Ephemeral Injection]:")
     print("  Diagnostico inyectado al contexto del modelo:")
     print(" ", p3.stdout.strip())
 
     # Paso 4: Agente intenta parar prematuramente
-    p4 = subprocess.run(["python3", "plugin/lsp-enforcement-kit/lsp_audit.py", "stop"],
+    p4 = subprocess.run([sys.executable, "src/lsp_audit.py", "stop"],
                         input=json.dumps({"conversationId": conv_id}), text=True, capture_output=True)
     print("\n[Paso 4 - Stop Quality Gate]:")
     print("  Intento de parada bloqueado por el Harness:")
     print(" ", p4.stdout.strip())
 
     # Paso 5: Agente corrige el error
-    with open("src/service.py", "w", encoding="utf-8") as f:
+    with open(demo_file, "w", encoding="utf-8") as f:
         f.write("def calculate_total(a, b):\n    return a + b\n")
-    subprocess.run(["python3", "plugin/lsp-enforcement-kit/lsp_audit.py", "post-tool"],
+    subprocess.run([sys.executable, "src/lsp_audit.py", "post-tool"],
                    input=json.dumps(write_payload), text=True, capture_output=True)
 
     # Paso 6: Agente para exitosamente
-    p6 = subprocess.run(["python3", "plugin/lsp-enforcement-kit/lsp_audit.py", "stop"],
+    p6 = subprocess.run([sys.executable, "src/lsp_audit.py", "stop"],
                         input=json.dumps({"conversationId": conv_id}), text=True, capture_output=True)
     print("\n[Paso 6 - Stop Gate tras correccion]:")
     print("  Parada permitida limpiamente (Cache vacia):", p6.stdout.strip() or "{}")
     print("=" * 65)
+
+    if os.path.exists(demo_file):
+        os.remove(demo_file)
 
 if __name__ == "__main__":
     main()

@@ -19,10 +19,11 @@ DEMO_DIR = "demo_synthetic_test"
 def find_lsp_audit_script() -> str:
     """Discovers lsp_audit.py in local workspace, global config, or repo folder."""
     candidates = [
+        pathlib.Path("src/lsp_audit.py"),
         pathlib.Path(".agents/hooks/lsp_audit.py"),
         pathlib.Path("plugin/lsp-enforcement-kit/lsp_audit.py"),
         pathlib.Path.home() / ".gemini" / "config" / "plugins" / "lsp-enforcement-kit" / "lsp_audit.py",
-        pathlib.Path(__file__).resolve().parent.parent / "plugin" / "lsp-enforcement-kit" / "lsp_audit.py"
+        pathlib.Path(__file__).resolve().parent.parent / "src" / "lsp_audit.py"
     ]
     for c in candidates:
         if c.exists():

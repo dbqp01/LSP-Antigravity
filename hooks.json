@@ -3,11 +3,11 @@
     "enabled": true,
     "PreToolUse": [
       {
-        "matcher": "grep_search|find_by_name",
+        "matcher": "grep_search|find_by_name|run_command",
         "hooks": [
           {
             "type": "command",
-            "command": "python nav_guard.py pre-tool",
+            "command": "python src/nav_guard.py pre-tool",
             "timeout": 5
           }
         ]
@@ -19,7 +19,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python lsp_audit.py post-tool",
+            "command": "python src/lsp_audit.py post-tool",
             "timeout": 15
           }
         ]
@@ -28,14 +28,14 @@
     "PreInvocation": [
       {
         "type": "command",
-        "command": "python lsp_audit.py pre-invocation",
+        "command": "python src/lsp_audit.py pre-invocation",
         "timeout": 5
       }
     ],
     "Stop": [
       {
         "type": "command",
-        "command": "python lsp_audit.py stop",
+        "command": "python src/lsp_audit.py stop",
         "timeout": 5
       }
     ]

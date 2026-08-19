@@ -31,6 +31,6 @@ WORKDIR /workspace
 COPY . .
 
 # Auto-link the plugin into global Antigravity config
-RUN cp -r /workspace/plugin/lsp-enforcement-kit/* /root/.gemini/config/plugins/lsp-enforcement-kit/
+RUN cp -r /workspace/plugin.json /workspace/hooks.json /workspace/mcp_config.json /workspace/src /workspace/rules /workspace/skills /root/.gemini/config/plugins/lsp-enforcement-kit/
 
 CMD ["python3", "-m", "unittest", "discover", "tests", "-v"]

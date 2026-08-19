@@ -1,0 +1,8 @@
+{
+  "name": "lsp-enforcement-kit",
+  "version": "1.2.0",
+  "description": "360-degree LSP Lifecycle, Navigation Guard & Quality Gate for Antigravity CLI",
+  "author": "dbqp01",
+  "license": "MIT",
+  "repository": "https://github.com/dbqp01/LSP-Antigravity"
+}

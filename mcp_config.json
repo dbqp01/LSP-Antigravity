@@ -2,7 +2,9 @@
   "mcpServers": {
     "lsp-enforcement-kit": {
       "command": "python",
-      "args": ["mcp_server.py"]
+      "args": [
+        "src/mcp_server.py"
+      ]
     }
   }
 }

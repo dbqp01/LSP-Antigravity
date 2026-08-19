@@ -7,8 +7,8 @@ import sys
 import io
 import shutil
 
-# Add plugin folder to sys.path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "plugin", "lsp-enforcement-kit")))
+# Add src folder to sys.path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 import lsp_audit
 
 class TestHooksE2E(unittest.TestCase):

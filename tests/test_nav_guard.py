@@ -4,8 +4,8 @@ import os
 import io
 import json
 
-# Add plugin folder to sys.path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "plugin", "lsp-enforcement-kit")))
+# Add src folder to sys.path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 import nav_guard
 
 class TestNavGuard(unittest.TestCase):
@@ -78,6 +78,57 @@ class TestNavGuard(unittest.TestCase):
         sys.stdout = io.StringIO()
         try:
             nav_guard.handle_pre_tool(payload)
+            output = json.loads(sys.stdout.getvalue())
+            self.assertEqual(output.get("decision"), "allow")
+        finally:
+            sys.stdout = old_stdout
+
+    def test_handle_pre_tool_run_command_shell_blocking(self):
+        # Shell grep for symbol
+        payload = {
+            "conversationId": "test-123",
+            "toolCall": {
+                "name": "run_command",
+                "args": {"CommandLine": "grep -rn \"UserService\" ./src"}
+            }
+        }
+        old_stdout = sys.stdout
+        sys.stdout = io.StringIO()
+        try:
+            nav_guard.handle_pre_tool(payload)
+            output = json.loads(sys.stdout.getvalue())
+            self.assertEqual(output.get("decision"), "deny")
+            self.assertIn("LSP-FIRST GUARD", output.get("reason", ""))
+        finally:
+            sys.stdout = old_stdout
+
+        # PowerShell Get-ChildItem with code symbol filter
+        payload_ps = {
+            "conversationId": "test-123",
+            "toolCall": {
+                "name": "run_command",
+                "args": {"CommandLine": "Get-ChildItem -Path . -Recurse -Filter \"*calculateTotal*\""}
+            }
+        }
+        sys.stdout = io.StringIO()
+        try:
+            nav_guard.handle_pre_tool(payload_ps)
+            output = json.loads(sys.stdout.getvalue())
+            self.assertEqual(output.get("decision"), "deny")
+        finally:
+            sys.stdout = old_stdout
+
+        # General non-symbol command allowed
+        payload_normal = {
+            "conversationId": "test-123",
+            "toolCall": {
+                "name": "run_command",
+                "args": {"CommandLine": "Get-ChildItem -Path C:\\Users\\akim\\.gemini -Recurse -Filter \"*market*\""}
+            }
+        }
+        sys.stdout = io.StringIO()
+        try:
+            nav_guard.handle_pre_tool(payload_normal)
             output = json.loads(sys.stdout.getvalue())
             self.assertEqual(output.get("decision"), "allow")
         finally:

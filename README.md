@@ -1,66 +1,150 @@
 # Antigravity LSP Enforcement Kit
 
-> A 360-degree Closed-Loop LSP Lifecycle & Quality Gate for Antigravity CLI
-> Enforce LSP-first navigation to save up to 80% tokens & prevent broken code from landing.
+Plugin de extension para Google Antigravity CLI (`agy`) que provee integracion con Language Server Protocol (LSP 3.17) mediante un servidor MCP nativo y un conjunto de hooks para el ciclo de vida del agente.
 
 [![CI](https://github.com/dbqp01/LSP-Antigravity/actions/workflows/ci.yml/badge.svg)](https://github.com/dbqp01/LSP-Antigravity/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Antigravity](https://img.shields.io/badge/Antigravity-Plugin-purple.svg)](https://antigravity.dev)
-[![Python Stdlib Only](https://img.shields.io/badge/Dependencies-0%20pip%20deps-blue.svg)](plugin/lsp-enforcement-kit/lsp_audit.py)
+[![Python Stdlib Only](https://img.shields.io/badge/Dependencies-0%20pip%20deps-blue.svg)](src/lsp_audit.py)
 
 ---
 
-## 1. The Problem
+## 1. Descripcion Tecnica
 
-Without semantic LSP guidance, AI coding agents suffer from two critical inefficiencies:
+El sistema opera sobre cuatro eventos del ciclo de vida de Antigravity CLI (`hooks.json`):
 
-1. Blind Exploration (Token Waste): The agent searches symbols via full-workspace grep_search and reads entire files, consuming 5,000-10,000+ tokens per lookup.
-2. Blind Modification (Broken Code): The agent edits code without immediate syntax or type validation, finishing tasks with unresolved compilation errors.
-
----
-
-## 2. The Solution: 360-degree LSP Lifecycle & Native MCP Server
+1. **PreToolUse (`src/nav_guard.py`)**: Intercepta llamadas a `grep_search`, `find_by_name` y comandos de busqueda en `run_command`. Si el parametro coincide con nombres de simbolos de codigo (`PascalCase`, `camelCase`, `snake_case`, accesos a propiedades), deniega la ejecucion (`decision: "deny"`) y retorna la sugerencia de la herramienta MCP correspondiente.
+2. **PostToolUse (`src/lsp_audit.py post-tool`)**: Se ejecuta tras llamadas a `write_to_file` y `replace_file_content`. Realiza analisis sintactico y de tipos del archivo modificado mediante parsers AST y linters configurados. Los diagnosticos se registran en `.agents/.audit_cache/<conversation_id>.json`.
+3. **PreInvocation (`src/lsp_audit.py pre-invocation`)**: Lee la cache de la sesion actual antes de cada invocacion del modelo. Si existen errores pendientes, inyecta un mensaje efimero (`ephemeralMessage`) con archivo, linea y descripcion del diagnostico.
+4. **Stop (`src/lsp_audit.py stop`)**: Calidad de salida. Si existen errores en cache al intentar finalizar la ejecucion, retorna `decision: "continue"` para requerir la correccion. Dispone de un limite de 3 intentos consecutivos antes de permitir la finalizacion.
 
 ```mermaid
-flowchart LR
-    A[Exploration / Reading] -->|PreToolUse: nav_guard.py| B[Block blind Grep -> Suggest active LSP MCP]
-    B -->|MCP Tools| G[Native LSP MCP: find_definition, workspace_symbols, outline]
-    C[Modification / Writing] -->|PostToolUse: lsp_audit.py| D[Instant AST / Linter audit]
-    D -->|PreInvocation ephemeral| E[Agent auto-corrects broken code]
-    E -->|Stop Hook Gate| F[Quality gate with anti-deadlock Circuit Breaker]
+flowchart TD
+    subgraph PreToolUse [1. Intercepcion de Busqueda]
+        A[Llamada a grep_search / find_by_name / run_command] --> B(src/nav_guard.py)
+        B --> C{Coincide con simbolo de codigo?}
+        C -- Si --> D[decision: deny + Sugiere herramienta MCP]
+        C -- No --> E[decision: allow]
+    end
+
+    subgraph PostToolUse [2. Auditoria Post-Escritura]
+        F[Escritura via write_to_file / replace_file_content] --> G(src/lsp_audit.py post-tool)
+        G --> H[Ejecucion de AST / Linters por archivo]
+        H --> I[Actualizacion de .agents/.audit_cache/conv_id.json]
+    end
+
+    subgraph PreInvocation [3. Inyeccion de Diagnostico]
+        J(src/lsp_audit.py pre-invocation) --> K{Errores en cache?}
+        K -- Si --> L[Inyecta ephemeralMessage con diagnostico]
+        K -- No --> M[Sin inyeccion]
+    end
+
+    subgraph Stop [4. Control de Finalizacion]
+        N(src/lsp_audit.py stop) --> O{Errores en cache?}
+        O -- No --> P[decision: allow]
+        O -- Si --> Q{Intentos <= 3}
+        Q -- Si --> R[decision: continue]
+        Q -- No --> S[decision: allow - Limite alcanzado]
+    end
 ```
-
-### Native Built-in MCP Tools (Stdio JSON-RPC 2.0):
-* `find_definition(filepath, line, character)`: Locates exact file and line of a symbol using the active language server.
-* `find_references(filepath, line, character)`: Finds all call sites and usages across the workspace.
-* `search_workspace_symbols(query)`: High-speed workspace-wide symbol search across all active indexers.
-* `get_document_outline(filepath)`: Returns token-efficient hierarchical AST outline of any file.
-* `get_diagnostics(filepath)`: Fetches real-time compiler and type-checker diagnostics.
-
-### Supported Languages & Auto-Provisioned Servers:
-* **Astro** (`.astro`): `@astrojs/language-server` + Frontmatter validation + `@astrojs/check`.
-* **TypeScript / JavaScript** (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`): `typescript-language-server` + `node --check` + `biome` + `tsc`.
-* **Python** (`.py`): `pyright` / `basedpyright` + Native AST + `symtable` + `ruff`.
-* **Rust** (`.rs`): `rust-analyzer` + `cargo check --message-format=json`.
-* **Go** (`.go`): `gopls` + `go vet`.
-* **PHP** (`.php`): `intelephense` + `php -l`.
-* **Bash / Shell** (`.sh`, `.bash`, `.zsh`): `bash-language-server` + `bash -n` / `sh -n`.
-* **JSON / TOML / YAML** (`.json`, `.toml`): Native standard library parsers.
 
 ---
 
-## 3. Quick 1-Click Installation
+## 2. Servidor MCP y Herramientas Expuestas
 
-### Windows (PowerShell / CMD)
+El plugin implementa un servidor MCP sobre stdio (`src/mcp_server.py`) que gestiona clientes LSP locales (`src/lsp_client.py`) y orquesta los procesos de servidores de lenguaje (`src/lsp_manager.py`).
+
+| Herramienta | Parametros | Descripcion |
+| :--- | :--- | :--- |
+| `find_definition` | `filepath` (string), `line` (int), `character` (int) | Retorna ubicacion de la definicion del simbolo segun el language server. |
+| `find_references` | `filepath` (string), `line` (int), `character` (int) | Retorna lista de referencias y llamadas al simbolo en el proyecto. |
+| `search_workspace_symbols` | `query` (string) | Busca declaraciones de clases, funciones e interfaces en el indice del workspace. |
+| `get_document_outline` | `filepath` (string) | Retorna arbol de simbolos del archivo (clases, metodos, funciones). |
+| `get_diagnostics` | `filepath` (string) | Retorna lista de diagnosticos, advertencias y errores del compilador. |
+
+---
+
+## 3. Soporte de Lenguajes y Motores de Analisis
+
+| Lenguaje | Extensiones | Motor Primario | Fallback / Verificador |
+| :--- | :--- | :--- | :--- |
+| **Python** | `.py`, `.pyi` | `ast.parse()` + `symtable` (stdlib) | `ruff`, `pyright`, `basedpyright` |
+| **TypeScript / JS** | `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs` | `node --check` (JS) | `biome`, `tsc --noEmit` (nearest root) |
+| **Astro** | `.astro` | Parser de frontmatter (`---`) | `@astrojs/check` |
+| **PHP** | `.php` | `php -l` | Intelephense via LSP |
+| **Rust** | `.rs` | `cargo check --message-format=json` | `rust-analyzer` via LSP |
+| **Go** | `.go` | `go vet` | `gopls` via LSP |
+| **Shell** | `.sh`, `.bash`, `.zsh` | `bash -n` / `sh -n` | `bash-language-server` |
+| **PowerShell** | `.ps1`, `.psm1`, `.psd1` | `System.Management.Automation.Language.Parser` | AST de PowerShell |
+| **JSON / TOML** | `.json`, `.toml` | `json.loads()`, `tomllib.loads()` (stdlib) | N/A |
+
+---
+
+## 4. Estructura de Directorios
+
+```text
+config_de_agy/
+|-- plugin.json              # Manifiesto del plugin para Antigravity CLI
+|-- hooks.json               # Definicion de hooks del ciclo de vida
+|-- mcp_config.json          # Configuracion de ejecucion del servidor MCP
+|-- rules/
+|   `-- AGENTS.md            # Regla de contexto para priorizar herramientas LSP
+|-- skills/
+|   `-- lsp-diagnostics/
+|       `-- SKILL.md         # Definicion de skill para ejecucion de diagnosticos
+|-- src/                     # Motor de ejecucion (Python stdlib)
+|   |-- nav_guard.py         # Interceptor de busquedas y comandos de terminal
+|   |-- lsp_audit.py         # Auditor de sintaxis, cache y control de stop
+|   |-- lsp_client.py        # Implementacion de cliente JSON-RPC 2.0 (LSP 3.17)
+|   |-- lsp_manager.py       # Aprovisionamiento y ruteo de procesos LSP
+|   `-- mcp_server.py        # Protocolo MCP sobre stdio
+|-- docs/                    # Documentacion del proyecto
+|   |-- ARCHITECTURE.md      # Especificacion de diseno y mitigacion en monorepos
+|   |-- AUDIT_SUMMARY.md     # Resultados de pruebas de auditoria y sandbox
+|   |-- CHANGELOG.md         # Registro de cambios por version
+|   `-- MARKETPLACE_GUIDE.md # Instrucciones de instalacion y publicacion
+|-- tests/                   # Suite de pruebas automatizadas
+|   |-- test_audit_engine.py
+|   |-- test_hooks_e2e.py
+|   |-- test_lsp_architecture.py
+|   |-- test_nav_guard.py
+|   |-- stress_test_suite.py
+|   |-- simulate_task.py
+|   `-- synthetic_class_error_demo.py
+|-- docker/                  # Entorno Docker para ejecucion de pruebas
+|   |-- Dockerfile
+|   `-- docker-compose.yml
+|-- install.ps1 / .sh / .cmd # Scripts de instalacion en workspace o global
+|-- README.md                # Documentacion principal
+`-- LICENSE                  # Licencia MIT
+```
+
+---
+
+## 5. Instalacion
+
+### Via Antigravity CLI (`agy`)
+
+```bash
+# Instalacion desde repositorio remoto
+agy plugin install https://github.com/dbqp01/LSP-Antigravity
+
+# Instalacion desde directorio local
+agy plugin install .
+```
+
+### Via Scripts del Repositorio
+
+#### Windows
 ```powershell
 # PowerShell
 .\install.ps1
 
-# CMD (or double-click)
+# CMD
 install.cmd
 ```
 
-### Linux & macOS (Bash)
+#### Linux / macOS
 ```bash
 chmod +x install.sh
 ./install.sh
@@ -68,41 +152,59 @@ chmod +x install.sh
 
 ---
 
-## 4. Diagnostic Status Check
+## 6. Verificacion y Pruebas
 
-Verify installed compilers, linters, and session cache state at any time:
-
+### Diagnostico de Herramientas Instaladas
 ```bash
-python plugin/lsp-enforcement-kit/lsp_audit.py status
+python src/lsp_audit.py status
 ```
 
----
+### Validacion del Manifiesto del Plugin
+```bash
+agy plugin validate .
+```
 
-## 5. Testing & Reproducibility
-
-### Run the Native Test Suite
+### Ejecucion de la Suite de Pruebas Unitaria
 ```bash
 python -m unittest discover tests -v
 ```
 
-### Run Stress & Benchmarking Suite
+### Ejecucion de Pruebas de Estres y Rendimiento
 ```bash
 python tests/stress_test_suite.py
 ```
 
-### Run in Docker Sandbox
+### Ejecucion en Sandbox Docker
 ```bash
 docker compose -f docker/docker-compose.yml run --rm audit-sandbox
 ```
 
 ---
 
-## 6. Acknowledgments & Upstream Attribution
+## 7. Administracion del Plugin
 
-This project is directly adapted and ported for Google Antigravity from the original [claude-code-lsp-enforcement-kit](https://github.com/nesaminua/claude-code-lsp-enforcement-kit) by [@nesaminua](https://github.com/nesaminua), licensed under the MIT License. We gratefully acknowledge their original architecture for LSP enforcement and token-saving navigation guards.
+```bash
+# Listar plugins registrados
+agy plugin list
+
+# Habilitar plugin
+agy plugin enable lsp-enforcement-kit
+
+# Deshabilitar plugin
+agy plugin disable lsp-enforcement-kit
+
+# Desinstalar plugin
+agy plugin uninstall lsp-enforcement-kit
+```
 
 ---
 
-## 7. License
+## 8. Atribucion
 
-MIT License. See [LICENSE](LICENSE) for details. Built for efficiency: minimal code, fast execution, zero external dependencies, and 100% ASCII standard output compliance.
+Adaptacion para Google Antigravity basada en la arquitectura de [claude-code-lsp-enforcement-kit](https://github.com/nesaminua/claude-code-lsp-enforcement-kit) por [@nesaminua](https://github.com/nesaminua), bajo Licencia MIT.
+
+---
+
+## 9. Licencia
+
+Licencia MIT. Consultar [LICENSE](LICENSE) para el texto completo de la licencia.

@@ -63,19 +63,26 @@ if (-not $SkipTools) {
 }
 
 # 3. Despliegue de Hooks y Configuracion
-Write-Host "`n[3/3] Desplegando hooks del plugin..." -ForegroundColor Yellow
+Write-Host "`n[3/3] Desplegando plugin de Antigravity..." -ForegroundColor Yellow
 
-$SourceDir = Join-Path $PSScriptRoot "plugin\lsp-enforcement-kit"
-if (-not (Test-Path $SourceDir)) {
-    $SourceDir = Join-Path $WorkspacePath "plugin\lsp-enforcement-kit"
+$SourceDir = $PSScriptRoot
+if (-not (Test-Path (Join-Path $SourceDir "plugin.json"))) {
+    $SourceDir = $WorkspacePath
 }
+
+$PluginFiles = @("plugin.json", "hooks.json", "mcp_config.json", "src", "rules", "skills")
 
 # Workspace local (.agents/plugins/lsp-enforcement-kit)
 $LocalAgentsDir = Join-Path $WorkspacePath ".agents"
 $LocalPluginsDir = Join-Path $LocalAgentsDir "plugins\lsp-enforcement-kit"
 
 New-Item -ItemType Directory -Force -Path $LocalPluginsDir | Out-Null
-Copy-Item -Recurse -Force "$SourceDir\*" "$LocalPluginsDir\"
+foreach ($item in $PluginFiles) {
+    $srcPath = Join-Path $SourceDir $item
+    if (Test-Path $srcPath) {
+        Copy-Item -Recurse -Force $srcPath "$LocalPluginsDir\"
+    }
+}
 
 # Remove legacy broken root hooks.json if present
 $LegacyHooksJson = Join-Path $LocalAgentsDir "hooks.json"
@@ -88,12 +95,21 @@ Write-Host "  [OK] Desplegado como Plugin en Workspace: $LocalPluginsDir" -Foreg
 if ($Global) {
     $GlobalPluginDir = Join-Path $env:USERPROFILE ".gemini\config\plugins\lsp-enforcement-kit"
     New-Item -ItemType Directory -Force -Path $GlobalPluginDir | Out-Null
-    Copy-Item -Recurse -Force "$SourceDir\*" "$GlobalPluginDir\"
+    foreach ($item in $PluginFiles) {
+        $srcPath = Join-Path $SourceDir $item
+        if (Test-Path $srcPath) {
+            Copy-Item -Recurse -Force $srcPath "$GlobalPluginDir\"
+        }
+    }
     Write-Host "  [OK] Desplegado Globalmente: $GlobalPluginDir" -ForegroundColor Green
 }
 
 # 4. Diagnostico Final
 Write-Host "`n"
-python "$LocalPluginsDir\lsp_audit.py" status
+if (Get-Command agy -ErrorAction SilentlyContinue) {
+    Write-Host "  -> Validando con Antigravity CLI (agy):" -ForegroundColor Cyan
+    agy plugin validate $LocalPluginsDir
+}
+python "$LocalPluginsDir\src\lsp_audit.py" status
 
 Write-Host "`n[LISTO] Antigravity LSP Enforcement Kit instalado y activado con exito." -ForegroundColor Green

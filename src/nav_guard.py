@@ -90,6 +90,26 @@ def build_suggestion(symbol: str, providers: list[str]) -> str:
 
     return " | ".join(suggestions)
 
+def extract_shell_search_symbol(cmd: str) -> str:
+    """Extracts potential code symbol query from shell commands (grep, rg, findstr, Select-String, Get-ChildItem)."""
+    if not cmd:
+        return ""
+    has_search_cmd = bool(re.search(r"\b(?:grep|rg|findstr|Select-String|Get-ChildItem)\b", cmd, re.IGNORECASE))
+    if not has_search_cmd:
+        return ""
+
+    tokens = re.findall(r"[\"']([^\"']+)[\"']|(\S+)", cmd)
+    for t_quoted, t_unquoted in tokens:
+        token = (t_quoted or t_unquoted).strip("*")
+        if not token or token.startswith("-") or token.startswith("/") or token.startswith("."):
+            continue
+        if re.search(r"^(?:grep|rg|findstr|Select-String|Get-ChildItem|Path|Filter|Pattern|Recurse)$", token, re.IGNORECASE):
+            continue
+        is_sym, _ = is_code_symbol(token)
+        if is_sym:
+            return token
+    return ""
+
 def handle_pre_tool(payload: dict):
     tool_call = payload.get("toolCall", {})
     tool_name = tool_call.get("name", "")
@@ -100,6 +120,9 @@ def handle_pre_tool(payload: dict):
         target_query = args.get("Query", "")
     elif tool_name == "find_by_name":
         target_query = args.get("Pattern", "").replace("*", "")
+    elif tool_name == "run_command":
+        cmd = args.get("CommandLine", "")
+        target_query = extract_shell_search_symbol(cmd)
 
     if target_query:
         is_symbol, symbol_type = is_code_symbol(target_query)
