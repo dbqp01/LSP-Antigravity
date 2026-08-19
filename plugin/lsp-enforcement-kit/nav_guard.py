@@ -13,7 +13,6 @@ Features:
 """
 import sys
 import json
-import os
 import re
 import pathlib
 
@@ -81,13 +80,13 @@ def is_code_symbol(query: str) -> tuple[bool, str]:
 
 def build_suggestion(symbol: str, providers: list[str]) -> str:
     suggestions = []
+    # Native built-in LSP MCP tool
+    suggestions.append(f'mcp__lsp-enforcement-kit__find_definition("{symbol}") / search_workspace_symbols("{symbol}")')
+
     if "serena" in providers:
         suggestions.append(f'mcp__serena__find_symbol("{symbol}")')
     if "cclsp" in providers:
         suggestions.append(f'mcp__cclsp__find_definition("{symbol}") / find_references("{symbol}")')
-    
-    if not suggestions:
-        suggestions.append(f'LSP MCP semantic tools (find_definition, find_references) or targeted line-range view')
 
     return " | ".join(suggestions)
 

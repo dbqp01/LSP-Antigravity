@@ -19,26 +19,33 @@ Without semantic LSP guidance, AI coding agents suffer from two critical ineffic
 
 ---
 
-## 2. The Solution: 360-degree LSP Lifecycle
+## 2. The Solution: 360-degree LSP Lifecycle & Native MCP Server
 
 ```mermaid
 flowchart LR
     A[Exploration / Reading] -->|PreToolUse: nav_guard.py| B[Block blind Grep -> Suggest active LSP MCP]
+    B -->|MCP Tools| G[Native LSP MCP: find_definition, workspace_symbols, outline]
     C[Modification / Writing] -->|PostToolUse: lsp_audit.py| D[Instant AST / Linter audit]
     D -->|PreInvocation ephemeral| E[Agent auto-corrects broken code]
     E -->|Stop Hook Gate| F[Quality gate with anti-deadlock Circuit Breaker]
 ```
 
-### Supported Languages & Tools:
-* **Python** (`.py`): AST (0ms) + Native `symtable` (catches undefined variables & typos, respects `from ... import *`) + `ruff` + `pyright`.
-* **TypeScript / JavaScript** (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`): `node --check` + `biome` + `tsc` (isolated to target file).
-* **Astro** (`.astro`): Frontmatter validation + `@astrojs/check` (isolated to target file).
-* **PHP** (`.php`): Native static lint parsing via `php -l`.
-* **PowerShell** (`.ps1`, `.psm1`, `.psd1`): Native .NET AST Parser (`System.Management.Automation.Language.Parser`).
-* **Bash / Shell** (`.sh`, `.bash`, `.zsh`): Cold static syntax checking via `bash -n` / `sh -n`.
-* **Rust** (`.rs`): `cargo check --message-format=json` (isolated to target file spans).
-* **Go** (`.go`): `go vet` (isolated to target file).
-* **JSON / TOML** (`.json`, `.toml`): Native standard library parsers.
+### Native Built-in MCP Tools (Stdio JSON-RPC 2.0):
+* `find_definition(filepath, line, character)`: Locates exact file and line of a symbol using the active language server.
+* `find_references(filepath, line, character)`: Finds all call sites and usages across the workspace.
+* `search_workspace_symbols(query)`: High-speed workspace-wide symbol search across all active indexers.
+* `get_document_outline(filepath)`: Returns token-efficient hierarchical AST outline of any file.
+* `get_diagnostics(filepath)`: Fetches real-time compiler and type-checker diagnostics.
+
+### Supported Languages & Auto-Provisioned Servers:
+* **Astro** (`.astro`): `@astrojs/language-server` + Frontmatter validation + `@astrojs/check`.
+* **TypeScript / JavaScript** (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`): `typescript-language-server` + `node --check` + `biome` + `tsc`.
+* **Python** (`.py`): `pyright` / `basedpyright` + Native AST + `symtable` + `ruff`.
+* **Rust** (`.rs`): `rust-analyzer` + `cargo check --message-format=json`.
+* **Go** (`.go`): `gopls` + `go vet`.
+* **PHP** (`.php`): `intelephense` + `php -l`.
+* **Bash / Shell** (`.sh`, `.bash`, `.zsh`): `bash-language-server` + `bash -n` / `sh -n`.
+* **JSON / TOML / YAML** (`.json`, `.toml`): Native standard library parsers.
 
 ---
 
